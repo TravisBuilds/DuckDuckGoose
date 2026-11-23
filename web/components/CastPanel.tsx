@@ -17,6 +17,7 @@ import {
   emptyRights,
   estimateText,
   estimateWhat,
+  loadBodyPresets,
   lockedDescription,
   optionCounts,
   pictureHint,
@@ -33,6 +34,7 @@ import {
   withPictureFields,
 } from '@/lib/cast.mjs';
 import type {
+  BodyChoice as BodyOption,
   CastCharacter,
   CastImage,
   CastPick,
@@ -544,21 +546,26 @@ function cardText(character: CastCharacter) {
   };
 }
 
-/** The kind of body a character has: its character sheet is framed for it. */
-function BodyChoice({ value, onChange, testId, className = '' }: {
-  value: string; onChange: (value: string) => void; testId: string; className?: string;
+/**
+ * The kind of body a character has: its character sheet is framed for it. choices: the built-in body
+ * types and the show's body presets; a body type no longer offered still shows, by its name.
+ */
+function BodyChoice({ value, choices, onChange, testId, className = '' }: {
+  value: string; choices: BodyOption[]; onChange: (value: string) => void; testId: string; className?: string;
 }) {
+  const shown = choices.some((b) => b.value === value) ? choices : [...choices, { value, label: value }];
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Body" data-testid={testId}
       className={`${field} ${className}`}>
-      {BODY_TYPES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+      {shown.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
     </select>
   );
 }
 
-function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra }: {
+function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra, bodies }: {
   apiBase: string; view: CastView; character: CastCharacter; colour: CastColour; index: number; busy: boolean; act: Act;
   note: CastNote | null; universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
+  bodies: BodyOption[];
 }) {
   const canEdit = view.can_edit;
   const [versionNo, setVersionNo] = useState(character.default_version);
@@ -619,11 +626,11 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
             aria-label="Part they play" placeholder="Part they play, e.g. the lead" className={field} />
           <textarea value={text.description} onChange={(e) => setText({ ...text, description: e.target.value })}
             maxLength={600} rows={3} aria-label="What they look like" className={field} />
-          <BodyChoice value={text.body_type} onChange={(body_type) => setText({ ...text, body_type })}
+          <BodyChoice value={text.body_type} choices={bodies} onChange={(body_type) => setText({ ...text, body_type })}
             testId={`cast-body-${here}`} />
           <input value={text.sheet_pose} onChange={(e) => setText({ ...text, sheet_pose: e.target.value })}
             maxLength={200} aria-label="Pose in the character sheet" className={field} data-testid={`cast-pose-${here}`}
-            placeholder="Pose in the character sheet (optional), e.g. sitting with wings folded" />
+            placeholder="Pose in the character sheet (optional), e.g. seated, hands folded" />
           <p className="text-[12px] text-ink-soft">
             The body and pose shape character sheets made from now on.
             {anyLocked && ' Locked looks keep the description and pictures they were locked with.'}
@@ -640,8 +647,10 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
           )}
         </p>
       )}
-      {!editing && bodyNote(character) && (
-        <p className="mt-1 text-[12px] text-ink-soft" data-testid={`cast-body-note-${here}`}>{bodyNote(character)}</p>
+      {!editing && bodyNote(character, bodies) && (
+        <p className="mt-1 text-[12px] text-ink-soft" data-testid={`cast-body-note-${here}`}>
+          {bodyNote(character, bodies)}
+        </p>
       )}
       {version.locked && (
         <p className="mt-1 text-[12px] text-ink-soft">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
@@ -732,8 +741,8 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
  * checks and rights questions as a picture upload), or without a photo. With no one in the cast yet
  * the photo comes first and "Add a character with a photo" is the main action.
  */
-function AddCharacter({ apiBase, view, busy, act, note }: {
-  apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
+function AddCharacter({ apiBase, view, busy, act, note, bodies }: {
+  apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null; bodies: BodyOption[];
 }) {
   const empty = { name: '', role: '', description: '', body_type: 'humanoid' };
   const [form, setForm] = useState(empty);
@@ -797,7 +806,7 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
         maxLength={600} rows={3} aria-label="What they look like" data-testid="cast-add-description"
         placeholder="What they look like, the same in every shot: age, build, face, hair, colours, clothing"
         className={`${field} mt-2`} />
-      <BodyChoice value={form.body_type} onChange={(body_type) => setForm({ ...form, body_type })}
+      <BodyChoice value={form.body_type} choices={bodies} onChange={(body_type) => setForm({ ...form, body_type })}
         testId="cast-add-body" className="mt-2" />
       {file && (
         <RightsQuestions rights={rights} onChange={setRights} group="rights-add" testId={(what) => `cast-add-${what}`} />
@@ -1093,6 +1102,17 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
     if (!inUniverse) load();
   }, [load, inUniverse]);
 
+  const [bodies, setBodies] = useState<BodyOption[]>(BODY_TYPES);
+  useEffect(() => {
+    let live = true;
+    loadBodyPresets(inUniverse ? '' : episodeId, apiFetch).then((choices) => {
+      if (live) setBodies(choices);
+    });
+    return () => {
+      live = false;
+    };
+  }, [episodeId, inUniverse]);
+
   const working = !inUniverse && anyActiveJobs(view?.characters);
   useEffect(() => {
     if (!working) return;
@@ -1138,8 +1158,8 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
       <h2 className="mb-1 text-[24px]">{universe ? 'Characters' : 'Cast'}</h2>
       <p className="mb-4 text-[13.5px] text-ink-soft">
         {universe
-          ? 'The people (and creatures) of this Universe. Describe each one and add a picture; every episode in the Universe uses them, with the look locked once from an episode.'
-          : 'The people (and creatures) in this video. Describe each one and add a picture, then lock their look with a character sheet so they look the same in every shot.'}
+          ? 'The characters of this Universe. Describe each one and add a picture; every episode in the Universe uses them, with the look locked once from an episode.'
+          : 'The characters in this video. Describe each one and add a picture, then lock their look with a character sheet so they look the same in every shot.'}
       </p>
       <p role="status" aria-live="polite" className="sr-only">{message?.text ?? ''}</p>
       {!placed && <CastMessage note={message} />}
@@ -1166,12 +1186,12 @@ export default function CastPanel({ episodeId = '', apiBase, universe = null, ba
           {view.characters.map((c, i) => (
             <CharacterCard key={c.character_id} apiBase={base} view={view} character={c}
               colour={colours[c.slug] ?? castColourAt(i)} index={i} busy={busy} act={act}
-              note={ofCharacter(c.slug)} universe={universe} badge={badge} extra={extra} />
+              note={ofCharacter(c.slug)} universe={universe} badge={badge} extra={extra} bodies={bodies} />
           ))}
         </div>
       )}
       {addShown && (
-        <AddCharacter apiBase={base} view={view} busy={busy} act={act}
+        <AddCharacter apiBase={base} view={view} busy={busy} act={act} bodies={bodies}
           note={placed && message?.where === 'add' ? message : null} />
       )}
       {!universe && (

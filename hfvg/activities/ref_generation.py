@@ -62,7 +62,7 @@ async def generate_ref_activity(
     
     Args:
         episode_id: Episode identifier
-        ref_key: Reference key (e.g., "r_duck_sheet", "r_lineup")
+        ref_key: Reference key (e.g., "r_host_sheet", "r_lineup")
         prompt: Generation prompt
         output_path: Where to write the generated image
         version: Version number for idempotency (increments on reroll)
@@ -652,8 +652,9 @@ async def generate_ref_edit_activity(
 
     GAP-42: ``extra_refs`` (local files) are sent after the source as further image_urls (the source
     stays first; at most the model's max refs in total); they are part of the job id / reuse identity.
-    ``lock_meta`` (e.g. {"duck": true}) injects the prompt kit's continuity locks and enforces the
-    duck style split before any upload, estimate or spend.
+    ``lock_meta`` (the ref's shot flags, e.g. {"flags": {"on_camera": true}}; the legacy adapter's
+    top-level flags are still read) injects the show's continuity locks and enforces its lint rules
+    (hfvg.prompt_lint.ref_edit_violations) before any upload, estimate or spend.
 
     Same reuse/version/staging/QC/commit rules as generate_ref_activity; the spend is the provider
     estimate (never a literal), reserved on L1_refs before submit.

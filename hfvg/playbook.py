@@ -3,12 +3,16 @@
 Encodes mechanical checks from PIPELINE-LESSONS.md:
 - Credit caps per round
 - Draft-first tier enforcement
-- Same-resort environment plate validation
-- Duck-not-in-guest-group tag check
-- No upright/carrying poses for guest animals
+- Moderation-risk routing recommendation
+- The show's own playbook rules (show profile ``playbook.rules``, hfvg.show_profile), each of one type:
+  ``role_exclusion`` (a shot without a role carries a hard negative; tags that may never hold the
+  role), ``pose_words`` (words a prompt may not use near another; words a tagged shot must use) and
+  ``world_refs`` (environment shots include a locked world ref). Messages are the show's.
 """
 
 from typing import Any
+
+from hfvg.show_profile import ALWAYS, PlaybookRule, ShowProfile, evaluate_when
 
 
 class PlaybookViolation(Exception):
@@ -18,12 +22,17 @@ class PlaybookViolation(Exception):
 
 
 class PlaybookValidator:
-    """Validates episode plans against playbook rules."""
+    """Validates episode plans against playbook rules (the show's rules: ``profile``)."""
 
-    def __init__(self, credit_target: float = 1200.0, credit_cap: float = 1500.0):
+    def __init__(self, credit_target: float = 1200.0, credit_cap: float = 1500.0,
+                 profile: ShowProfile | None = None):
         self.credit_target = credit_target
         self.credit_cap = credit_cap
         self.round_spend: dict[str, float] = {}
+        self.profile = profile
+
+    def rules(self) -> tuple[PlaybookRule, ...]:
+        return self.profile.playbook.rules if self.profile is not None else ()
 
     def validate_credit_cap(self, round_name: str, proposed_cost: float):
         """
@@ -80,121 +89,79 @@ class PlaybookValidator:
             )
         
         return errors
-    
-    def validate_same_resort(self, shot: dict[str, Any], world_refs: list[str]) -> list[str]:
-        """
-        Validate ONE-RESORT RULE (§6).
-        
-        Every room must be generated FROM locked Ep01/Ep02 resort frames.
-        """
-        errors = []
-        
-        # Check if room generation includes world refs
-        if shot.get("type") == "room_plate" or "env" in shot.get("tags", []):
-            refs = shot.get("refs", [])
-            
-            # Check if any world refs are included
-            has_world_ref = any(
-                any(world_ref in ref for world_ref in world_refs)
-                for ref in refs
-            )
-            
-            if not has_world_ref and "pre-resort" not in shot.get("tags", []):
-                errors.append(
-                    f"Shot {shot.get('shot_id')}: Room generation must include "
-                    f"world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
-                )
-        
-        return errors
-    
-    def validate_duck_role(self, shot: dict[str, Any]) -> list[str]:
-        """
-        Validate duck role rule (§5: duck is host, never fifth guest).
-        
-        Guest-only shots need hard negative "no duck".
-        """
-        errors = []
-        
-        # Check if shot is guest-only
-        if "guest-only" in shot.get("tags", []) or shot.get("duck_role") == "absent":
-            prompt = shot.get("prompt", "")
-            
-            # Check for hard negative
-            if "no duck" not in prompt.lower():
-                errors.append(
-                    f"Shot {shot.get('shot_id')}: Guest-only shot must include "
-                    f"'no duck' hard negative. Duck-as-host rule (§3.1)."
-                )
-        
-        # Check if duck is in guest pack
-        if "duck-in-pack" in shot.get("tags", []):
-            errors.append(
-                f"Shot {shot.get('shot_id')}: Duck cannot be in guest pack. "
-                f"Duck is host, not fifth guest (§5)."
-            )
-        
-        return errors
-    
-    def validate_animal_poses(self, shot: dict[str, Any]) -> list[str]:
-        """
-        Validate NO UPRIGHT/CARRYING rule (§7).
-        
-        Guest animals stay NatGeo-real: quadrupedal, no human-style carrying.
-        """
-        errors = []
-        
-        prompt = shot.get("prompt", "").lower()
+
+    def validate_rule(self, rule: PlaybookRule, shot: dict[str, Any],
+                      world_refs: list[str] | None = None) -> list[str]:
+        """One show rule on one shot (a playbook view: shot_id, prompt, tags, refs, optional type,
+        shot_meta and absent_roles). ``world_refs``: the locked world refs a ``world_refs`` rule checks."""
+        check = {"role_exclusion": self._role_exclusion, "pose_words": self._pose_words,
+                 "world_refs": self._world_refs}[rule.type]
+        return check(rule, shot, world_refs or [])
+
+    def role_absent(self, rule: PlaybookRule, shot: dict[str, Any]) -> bool:
+        """The shot declares the rule's role absent: an absent tag, ``absent_roles`` (set by
+        hfvg.moderation_lint.playbook_view from the role's flag) or the role key the show's beatmap
+        codes write (with its ``absent`` value)."""
+        role = rule.params.get("role", "")
         tags = shot.get("tags", [])
-        
-        # Check for anthropomorphic keywords
-        forbidden = [
-            "standing upright",
-            "walking upright", 
-            "bipedal",
-            "carrying",
-            "holding",
-            "hand over",
-            "handing",
-        ]
-        
-        for keyword in forbidden:
-            if keyword in prompt and "guest" in prompt:
-                errors.append(
-                    f"Shot {shot.get('shot_id')}: Prompt contains '{keyword}' "
-                    f"for guest animal. NO UPRIGHT/CARRYING rule (§7)."
-                )
-        
-        # Check that gait is specified for animal shots
-        if "animal" in tags or "guest" in tags:
-            if "on all fours" not in prompt and "quadrupedal" not in prompt:
-                errors.append(
-                    f"Shot {shot.get('shot_id')}: Animal shot must specify "
-                    f"'on all fours' or 'quadrupedal' gait (§7 process)."
-                )
-        
+        if any(t in tags for t in rule.params.get("absent_tags", [])) or role in shot.get("absent_roles", []):
+            return True
+        codes = self.profile.character_codes.values() if self.profile is not None else ()
+        return any(c.role == role and c.key and shot.get(c.key) == c.absent for c in codes)
+
+    def _role_exclusion(self, rule: PlaybookRule, shot: dict[str, Any], world_refs: list[str]) -> list[str]:
+        errors = []
+        text = rule.params.get("require_text", "")
+        if self.role_absent(rule, shot) and text and text.lower() not in shot.get("prompt", "").lower():
+            errors.append(rule.messages["message"].format(shot_id=shot.get("shot_id"), word=text))
+        forbidden = [t for t in rule.params.get("forbid_tags", []) if t in shot.get("tags", [])]
+        if forbidden:
+            errors.append(rule.messages["forbid_message"].format(shot_id=shot.get("shot_id"), word=forbidden[0]))
         return errors
-    
+
+    def _pose_words(self, rule: PlaybookRule, shot: dict[str, Any], world_refs: list[str]) -> list[str]:
+        p = rule.params
+        meta, tags = shot.get("shot_meta") or {}, shot.get("tags", [])
+        if not evaluate_when(p.get("when", ALWAYS), meta, tags):
+            return []
+        errors = []
+        prompt = shot.get("prompt", "").lower()
+        near = p.get("forbid_near", "").lower()
+        for word in p.get("words", []):
+            if word.lower() in prompt and near in prompt:
+                errors.append(rule.messages["message"].format(shot_id=shot.get("shot_id"), word=word))
+        required = p.get("require_any", [])
+        if required and evaluate_when(p.get("require_when", ALWAYS), meta, tags):
+            if not any(r.lower() in prompt for r in required):
+                errors.append(rule.messages["require_message"].format(shot_id=shot.get("shot_id"), word=required[0]))
+        return errors
+
+    def _world_refs(self, rule: PlaybookRule, shot: dict[str, Any], world_refs: list[str]) -> list[str]:
+        p = rule.params
+        tags = shot.get("tags", [])
+        if shot.get("type") not in p.get("types", []) and not any(t in tags for t in p.get("tags", [])):
+            return []
+        has_world_ref = any(any(world_ref in ref for world_ref in world_refs) for ref in shot.get("refs", []))
+        if has_world_ref or any(t in tags for t in p.get("exempt_tags", [])):
+            return []
+        return [rule.messages["message"].format(shot_id=shot.get("shot_id"), word="")]
+
     def validate_shot(
         self, 
         shot: dict[str, Any], 
         world_refs: list[str] | None = None
     ) -> list[str]:
         """
-        Run all playbook validations on a shot.
+        Run all playbook validations on a shot: draft-first, then the show's rules in order (a
+        ``world_refs`` rule only when ``world_refs`` are given).
         
         Returns:
             List of error messages (empty if valid)
         """
-        errors = []
-        
-        errors.extend(self.validate_draft_first(shot))
-        
-        if world_refs:
-            errors.extend(self.validate_same_resort(shot, world_refs))
-        
-        errors.extend(self.validate_duck_role(shot))
-        errors.extend(self.validate_animal_poses(shot))
-        
+        errors = self.validate_draft_first(shot)
+        for rule in self.rules():
+            if rule.type != "world_refs" or world_refs:
+                errors.extend(self.validate_rule(rule, shot, world_refs))
         return errors
     
     def validate_moderation_routing(self, shot: dict[str, Any]) -> dict[str, str]:

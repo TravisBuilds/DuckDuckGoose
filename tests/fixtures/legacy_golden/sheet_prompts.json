@@ -1,0 +1,846 @@
+{
+ "jobs": {
+  "ep95plain/four_legged/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ]
+  ],
+  "ep95plain/four_legged/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ]
+  ],
+  "ep95plain/four_legged/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen straight from the front, facing the camera. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen from a three-quarter front angle, body turned about 45 degrees. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen in full profile from the side. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen from directly behind. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. A head sheet: four views of the same character's head and neck side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ]
+  ],
+  "ep95plain/humanoid/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95plain/humanoid/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95plain/humanoid/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen straight from the front, facing the camera. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen from a three-quarter front angle, body turned about 45 degrees. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen in full profile from the side. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen from directly behind. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. A head sheet: four head-and-shoulders views of the same character side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "humanoid"
+   ]
+  ],
+  "ep95plain/humanoid_pose/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95plain/humanoid_pose/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95plain/humanoid_pose/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen straight from the front, facing the camera. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen from a three-quarter front angle, body turned about 45 degrees. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen in full profile from the side. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen from directly behind. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. A head sheet: four head-and-shoulders views of the same character side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "humanoid"
+   ]
+  ],
+  "ep95plain/other/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95plain/other/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95plain/other/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen straight from the front, facing the camera. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen from a three-quarter front angle, body turned about 45 degrees. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen in full profile from the side. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen from directly behind. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. A head sheet: four close views of the same character's head or face side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "other"
+   ]
+  ],
+  "ep95plain/other_pose/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95plain/other_pose/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95plain/other_pose/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen straight from the front, facing the camera. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen from a three-quarter front angle, body turned about 45 degrees. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen in full profile from the side. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen from directly behind. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. A head sheet: four close views of the same character's head or face side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "other"
+   ]
+  ],
+  "ep95style/four_legged/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ]
+  ],
+  "ep95style/four_legged/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Wool: a round fluffy white sheep with a black face. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ]
+  ],
+  "ep95style/four_legged/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen straight from the front, facing the camera. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen from a three-quarter front angle, body turned about 45 degrees. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen in full profile from the side. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. Seen from directly behind. Full body, standing on all four legs in a neutral relaxed stance, the whole body and all four legs in view, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Wool: a round fluffy white sheep with a black face. A head sheet: four views of the same character's head and neck side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "four_legged"
+   ]
+  ],
+  "ep95style/humanoid/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95style/humanoid/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Mara: a tall woman with short grey hair and a green coat. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95style/humanoid/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen straight from the front, facing the camera. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen from a three-quarter front angle, body turned about 45 degrees. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen in full profile from the side. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. Seen from directly behind. Full body from head to feet, standing upright in a neutral relaxed pose, arms slightly away from the body, the whole figure centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Mara: a tall woman with short grey hair and a green coat. A head sheet: four head-and-shoulders views of the same character side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "humanoid"
+   ]
+  ],
+  "ep95style/humanoid_pose/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95style/humanoid_pose/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Sita: a girl in a red raincoat. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ]
+  ],
+  "ep95style/humanoid_pose/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen straight from the front, facing the camera. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen from a three-quarter front angle, body turned about 45 degrees. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen in full profile from the side. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. Seen from directly behind. Full body, the whole figure centered in frame. Pose: Sitting cross-legged on the floor, hands on knees. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "2:3",
+    "humanoid"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Sita: a girl in a red raincoat. A head sheet: four head-and-shoulders views of the same character side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "humanoid"
+   ]
+  ],
+  "ep95style/other/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95style/other/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Glim: a floating paper lantern with two round eyes. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95style/other/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen straight from the front, facing the camera. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen from a three-quarter front angle, body turned about 45 degrees. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen in full profile from the side. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. Seen from directly behind. Full body in a neutral resting pose natural to this character, the whole character in view and centered in frame. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Glim: a floating paper lantern with two round eyes. A head sheet: four close views of the same character's head or face side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "other"
+   ]
+  ],
+  "ep95style/other_pose/options_text": [
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "options",
+    "text",
+    "master_option",
+    "Character design reference of an original character. Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95style/other_pose/options_upload": [
+   [
+    "options",
+    "upload",
+    "master_option",
+    "Character design reference. The reference image shows this character: keep their identity exactly (same face, proportions, colors and design details). Hoot: a small brown owl. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ]
+  ],
+  "ep95style/other_pose/turnaround": [
+   [
+    "turnaround",
+    "master",
+    "turnaround_front",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen straight from the front, facing the camera. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_three_quarter",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen from a three-quarter front angle, body turned about 45 degrees. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_side",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen in full profile from the side. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "turnaround_back",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. Seen from directly behind. Full body, the whole figure centered in frame. Pose: perched upright, wings folded. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "1:1",
+    "other"
+   ],
+   [
+    "turnaround",
+    "master",
+    "head_sheet",
+    "Character turnaround reference. The reference image is this character's approved master: keep the identity exactly (same face, proportions, colors and outfit). Hoot: a small brown owl. A head sheet: four close views of the same character's head or face side by side, evenly spaced: front, three-quarter, profile and back, neutral expression. Plain light grey seamless background, even soft studio lighting, no props, no other characters. Visual style: flat pastel illustration, soft light. No text, no captions, no speech bubbles, no lettering.",
+    "3:2",
+    "other"
+   ]
+  ]
+ },
+ "placeholders": {
+  "None/head_sheet": [
+   1152,
+   768
+  ],
+  "None/master_option": [
+   768,
+   1152
+  ],
+  "None/turnaround_side": [
+   768,
+   1152
+  ],
+  "four_legged/head_sheet": [
+   1152,
+   768
+  ],
+  "four_legged/master_option": [
+   1152,
+   768
+  ],
+  "four_legged/turnaround_side": [
+   1152,
+   768
+  ],
+  "humanoid/head_sheet": [
+   1152,
+   768
+  ],
+  "humanoid/master_option": [
+   768,
+   1152
+  ],
+  "humanoid/turnaround_side": [
+   768,
+   1152
+  ],
+  "other/head_sheet": [
+   1152,
+   768
+  ],
+  "other/master_option": [
+   960,
+   960
+  ],
+  "other/turnaround_side": [
+   960,
+   960
+  ],
+  "unknown/head_sheet": [
+   1152,
+   768
+  ],
+  "unknown/master_option": [
+   768,
+   1152
+  ],
+  "unknown/turnaround_side": [
+   768,
+   1152
+  ]
+ }
+}

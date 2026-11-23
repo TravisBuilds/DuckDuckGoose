@@ -19,7 +19,7 @@ from hfvg.gates import load_policy
 from hfvg.budget import BudgetLedger
 from hfvg.qc.prompt_validation import validate_prompt, PromptValidationError
 from hfvg.qc.motion import MotionCheckResult
-from hfvg.qc.duck_identity import create_gate
+from hfvg.compat.host_identity import create_gate
 
 
 @pytest.mark.asyncio
@@ -140,7 +140,7 @@ async def test_e2e_duck_identity_gate():
     gate = create_gate()
     
     # Verify it uses fake components
-    from hfvg.qc.duck_identity import FakeDuckDetector, FakeVisionJudge
+    from hfvg.compat.host_identity import FakeDuckDetector, FakeVisionJudge
     assert isinstance(gate.detector, FakeDuckDetector)
     assert isinstance(gate.judge, FakeVisionJudge)
     

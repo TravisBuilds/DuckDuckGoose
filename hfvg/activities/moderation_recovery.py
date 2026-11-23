@@ -8,7 +8,7 @@ the decision is recorded in workflow history and replays deterministically):
 
 1. **Neutral reword** (``reword``): a deterministic, whole-word, case-insensitive pass that only
    REMOVES (or swaps for a plain neutral word) the benign descriptors listed in :data:`NEUTRALIZE`
-   that are known to trip provider filters on harmless scenes (a duck in rain is "wet"). It never
+   that are known to trip provider filters on harmless scenes (a character in rain is "wet"). It never
    adds spelling tricks, euphemisms, codes or new content: every output word is either an input
    word or one of the plain replacement words in :data:`NEUTRALIZE` (tested property). Prompts
    containing a :data:`HARD_STOP` term are NEVER rewritten - rewording those would be rephrasing
@@ -17,7 +17,7 @@ the decision is recorded in workflow history and replays deterministically):
    paid resubmit of an identical prompt).
 2. **Fallback model** (``fallback``, clips only): re-route to the configured fallback
    (``MODERATION_FALLBACK_MODELS``, default ``seedance:kling``), validated with the routing
-   planner (tags/duration/multi-animal rules) and the model_caps preflight for the clip phase.
+   planner (tags/duration/multi-character rules) and the model_caps preflight for the clip phase.
    Any routing/preflight error refuses the rung (audited) and the ladder escalates.
 3. **Escalate** (``escalate``): stop; the shot is flagged ``needs_review`` in the shots table with
    the provider's EXACT message, and the decision carries it back to the workflow/API.
@@ -49,7 +49,7 @@ ROUND_FOR_KIND = {"still": "G2_STILLS", "clip": "G3_CLIPS"}
 # otherwise the plain neutral word that replaces it. Keep this list SHORT, documented and boring:
 # nothing here may be a euphemism or obfuscation of prohibited content.
 NEUTRALIZE: dict[str, str] = {
-    # water / weather (rain, ponds, baths: the most common duck false positives)
+    # water / weather (rain, ponds, baths: the most common false positives)
     "wet": "", "soaked": "", "soaking": "", "drenched": "", "dripping": "",
     "damp": "", "moist": "", "sweaty": "", "steamy": "misty",
     # body-ish descriptors with harmless meanings (bare feet, exposed rock, a revealing angle)

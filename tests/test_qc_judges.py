@@ -76,7 +76,7 @@ TOKEN_COST = 560
 
 
 def test_flag_is_off_by_default_and_registers_nothing(monkeypatch):
-    from hfvg.qc.animal_count import get_animal_counter
+    from hfvg.compat.species_counter import get_animal_counter
     from hfvg.qc.clip_constraints import get_constraint_checker
     from hfvg.qc.identity import get_identity_judge
     from hfvg.qc.still_review import get_still_reviewer
@@ -92,12 +92,11 @@ def test_flag_is_off_by_default_and_registers_nothing(monkeypatch):
 
 
 def test_flag_on_registers_every_judge_in_the_worker_and_the_counter_in_the_api(monkeypatch):
-    from hfvg.qc.animal_count import get_animal_counter
+    from hfvg.compat.species_counter import VisionAnimalCounter, get_animal_counter
     from hfvg.qc.clip_constraints import get_constraint_checker
     from hfvg.qc.identity import VisionCharacterDetector, VisionIdentityJudge, get_identity_judge
     from hfvg.qc.still_review import VisionStillReviewer, get_still_reviewer
     from hfvg.qc.vision_constraints import VisionClipConstraintChecker
-    from hfvg.qc.vision_counter import VisionAnimalCounter
 
     reset_registries()
     monkeypatch.setenv("HFVG_QC_JUDGES_ENABLED", "true")
@@ -166,8 +165,7 @@ async def test_api_startup_registers_the_counter_only_with_the_flag(tmp_path, mo
     import secrets
     import sys
 
-    from hfvg.qc.animal_count import get_animal_counter
-    from hfvg.qc.vision_counter import VisionAnimalCounter
+    from hfvg.compat.species_counter import VisionAnimalCounter, get_animal_counter
 
     monkeypatch.setenv("ADMIN_SECRET", secrets.token_urlsafe(32))
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "api.db"))
@@ -263,15 +261,101 @@ async def test_without_token_usage_the_estimate_is_committed(db):
     assert verdict_rows(db)[0][3:] == (_estimate(), "estimate")
 
 
+def _price_the_model(monkeypatch) -> None:
+    """A judge model other than the default needs its own prices (here the default ones)."""
+    monkeypatch.setenv("HFVG_QC_JUDGE_USD_PER_MTOK_IN", judges.DEFAULT_PRICE_IN_USD)
+    monkeypatch.setenv("HFVG_QC_JUDGE_USD_PER_MTOK_OUT", judges.DEFAULT_PRICE_OUT_USD)
+
+
 async def test_the_model_id_comes_from_the_environment_and_stays_out_of_verdicts_and_the_ledger(db, monkeypatch):
     assert judges.judge_model() == DEFAULT_MODEL
     monkeypatch.setenv("HFVG_QC_JUDGE_MODEL", "placeholder-vision-model")
+    _price_the_model(monkeypatch)
     client = FakeJudgeClient({"ok": True})
     answer = await JudgeService(client).ask(_call())
     assert client.calls[0]["model"] == "placeholder-vision-model"
     assert "placeholder-vision-model" not in json.dumps(answer)
     assert all("placeholder-vision-model" not in (r or "") for _t, _a, r in qc_transactions(db, EP))
     assert all("placeholder-vision-model" not in json.dumps(row) for row in verdict_rows(db))
+
+
+async def test_the_provider_comes_from_the_model_setting(db, monkeypatch):
+    from hfvg.balance_monitor import BalanceMonitor
+
+    asked = []
+
+    async def gate(self, provider, estimate_usd_micros, auto_topup_enabled=False):
+        asked.append(provider)
+        return True, f"{provider} balance unknown"
+
+    monkeypatch.setattr(BalanceMonitor, "check_preflight_balance", gate)
+    monkeypatch.setenv("HFVG_QC_JUDGE_MODEL", "acme/vision-large")
+    _price_the_model(monkeypatch)
+    client = FakeJudgeClient({"ok": True})
+    assert await JudgeService(client).ask(_call()) == {"ok": True}
+    assert client.calls[0]["model"] == "vision-large" and asked == ["acme"]
+    assert qc_line(db, EP)["provider"] == "acme"
+    with pytest.raises(JudgeUnavailable, match="no QC judge client for the provider 'acme'"):
+        JudgeService().client()
+    monkeypatch.setenv("HFVG_QC_JUDGE_MODEL", f"openai/{DEFAULT_MODEL}")
+    assert judges.model_parts() == ("openai", DEFAULT_MODEL) and judges.judge_provider() == "openai"
+
+
+async def test_a_model_without_its_own_prices_is_never_called(db, monkeypatch):
+    monkeypatch.setenv("HFVG_QC_JUDGE_MODEL", "acme/vision-large")
+    client = FakeJudgeClient({"ok": True})
+    reason = await _refusal(JudgeService(client))
+    assert reason == ("QC judge settings invalid, no cost estimate or time limit: HFVG_QC_JUDGE_USD_PER_MTOK_IN and "
+                      "HFVG_QC_JUDGE_USD_PER_MTOK_OUT must be set for a judge model other than the default"), reason
+    monkeypatch.setenv("HFVG_QC_JUDGE_USD_PER_MTOK_IN", "2.00")  # one price is not enough
+    reason = await _refusal(JudgeService(client))
+    assert reason.endswith("HFVG_QC_JUDGE_USD_PER_MTOK_OUT must be set for a judge model other than the default")
+    assert client.calls == [] and qc_line(db, EP) is None
+    monkeypatch.setenv("HFVG_QC_JUDGE_USD_PER_MTOK_OUT", "8.00")
+    assert await JudgeService(client).ask(_call()) == {"ok": True}
+    assert qc_line(db, EP)["spent"] == 1000 * 2 + 100 * 8  # FakeJudgeClient's usage at the configured prices
+
+
+async def test_a_judge_budget_used_up_says_so_and_other_refusals_do_not(db, monkeypatch):
+    from hfvg.budget import BudgetLedger
+
+    await BudgetLedger(db).ensure_line(EP, "qc_judges", 500_000, stop_usd_micros=1, provider="openai")
+    with pytest.raises(judges.JudgeBudgetExhausted) as stop:
+        await JudgeService(FakeJudgeClient({"ok": True})).ask(_call())
+    assert str(stop.value) == ("judge budget used up, a person checks this: budget refused the judge call: the "
+                               "qc_judges line or the episode is at its stop (the qc_judges line: $0.00 spent or held "
+                               "of its $0.000001 stop)")
+    monkeypatch.setenv("HFVG_QC_LINE_CAP_USD", "0.000001")
+    with pytest.raises(judges.JudgeBudgetExhausted, match="^judge budget used up, a person checks this: budget "
+                                                          "refused the judge call: Budget cap exceeded"):
+        await JudgeService(FakeJudgeClient({"ok": True})).ask(_call(episode_id="ep-qcj-cap"))
+    monkeypatch.delenv("HFVG_QC_LINE_CAP_USD")
+    await BudgetLedger(db).set_manual_balance(5_000_100, set_by="tester")
+    with pytest.raises(JudgeUnavailable) as headroom:
+        await JudgeService(FakeJudgeClient({"ok": True})).ask(_call(episode_id="ep-qcj-headroom"))
+    assert not isinstance(headroom.value, judges.JudgeBudgetExhausted)  # the account, not the judge budget
+    assert str(headroom.value).startswith("budget refused the judge call: GC.01 headroom")
+
+
+async def test_the_episode_stop_is_named_when_it_refuses_the_judges(db):
+    from hfvg.budget import BudgetLedger
+
+    ledger = BudgetLedger(db)
+    await ledger.ensure_line(EP, "L3_final_stills", 48_000_000, stop_usd_micros=48_000_000)
+    assert await ledger.reserve(EP, "L3_final_stills", 47_999_900, "stills", job_id="stills-1")
+    await ledger.commit(EP, "L3_final_stills", 47_999_900, 47_999_900, job_id="stills-1")
+    with pytest.raises(judges.JudgeBudgetExhausted, match=r"is at its stop \(the episode stop\)$"):
+        await JudgeService(FakeJudgeClient({"ok": True})).ask(_call())
+
+
+async def test_an_auto_line_that_cannot_be_sized_gets_the_default_cap(db, monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("HFVG_QC_LINE_CAP_USD", "auto")
+    monkeypatch.setenv("SHOTS_JSON_PATH", str(tmp_path / "shots.json"))
+    (tmp_path / "shots.json").write_text("{not json")
+    with caplog.at_level(logging.WARNING, logger="hfvg.qc.judges"):
+        assert await JudgeService(FakeJudgeClient({"ok": True})).ask(_call()) == {"ok": True}
+    assert qc_line(db, EP)["cap"] == 500_000
+    assert "not sized from its shot plan" in caplog.text and "default cap $0.50" in caplog.text
 
 
 # ------------------------------------------------------------------------------------------ cache
@@ -292,6 +376,7 @@ async def test_changed_media_or_model_is_judged_again(db, monkeypatch):
     assert await service.ask(_call(media="sha-a")) == {"ok": True}
     assert await service.ask(_call(media="sha-b")) == {"ok": False}
     monkeypatch.setenv("HFVG_QC_JUDGE_MODEL", "another-model")
+    _price_the_model(monkeypatch)
     assert await service.ask(_call(media="sha-a")) == {"ok": True}
     assert len(client.calls) == 3 and qc_line(db, EP)["spent"] == 3 * TOKEN_COST
 

@@ -27,8 +27,8 @@ from temporalio.worker import Worker
 
 from hfvg.activities.media import assemble_mute_edit, edit_dir
 from hfvg.activities.qc import check_assembly_qc, clip_stillgate, review_clip
-from hfvg.qc import animal_count
-from hfvg.qc.animal_count import (
+from hfvg.compat import species_counter
+from hfvg.compat.species_counter import (
     DuckPresenceCheck,
     FakeAnimalCounter,
     check_shot_animals,

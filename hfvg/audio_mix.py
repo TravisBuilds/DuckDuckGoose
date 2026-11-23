@@ -33,7 +33,7 @@ from hfvg import aspect, subproc
 from hfvg.paths import episodes_dir
 
 SR = 48000
-DELIVERY_VERSION = 6  # 6: GAP-60 picture sync guard; 5: GAP-55 CFR picture encodes + frame-count QC; 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window duck, GAP-31 guard loudness
+DELIVERY_VERSION = 6  # 6: GAP-60 picture sync guard; 5: GAP-55 CFR picture encodes + frame-count QC; 2: GAP-20 codec TP guard changes the encoded audio; 3: GAP-30 window ducking, GAP-31 guard loudness
 # 4: GAP-34 bed_dips (music+SFX gain dips over reviewer-flagged bursts), GAP-35 per-line subtitle_dur
 MIN_VO_GAP_RANGE = (0.3, 0.4)
 DEFAULT_MIN_VO_GAP_S = 0.4
@@ -1691,7 +1691,7 @@ async def mix_and_deliver(
         vo = await decode(vo_wav, n)
         act = activity_envelope(vo)
 
-        # ---- music bed: level to base, duck under VO, fades
+        # ---- music bed: level to base, ducking under VO, fades
         heartbeat({"stage": "music"})
         music = np.zeros((n, 2), dtype=np.float32)
         music_info = None
@@ -1712,7 +1712,7 @@ async def mix_and_deliver(
                               "offset_s": m["offset_s"], "src_start_s": round(src_start, 4),
                               "ducked_windows": len(placed)}
 
-        # ---- SFX: slice/loop, rms|peak normalize, fades, optional VO duck (beds / vox snippets)
+        # ---- SFX: slice/loop, rms|peak normalize, fades, optional VO ducking (beds / vox snippets)
         heartbeat({"stage": "sfx", "cues": len(plan.get("sfx", []))})
         sfx = np.zeros((n, 2), dtype=np.float32)
         sfx_info = []
@@ -1728,7 +1728,7 @@ async def mix_and_deliver(
             g = c["level_db"] - ref if ref > -100 else 0.0
             clip = fade(clip * db_to_lin(g), c["fade_in_s"], c["fade_out_s"])
             if c["duck_db"] < 0 and c.get("duck_mode") == "window":
-                # GAP-30: hold the duck for the whole line window (pauses inside a line stay
+                # GAP-30: hold the ducking for the whole line window (pauses inside a line stay
                 # ducked), the same curve the music bed uses
                 env = duck_envelope(n, [(p["at"], p["at"] + p["dur"]) for p in placed], c["duck_db"])
                 clip = clip * env[start:start + cn, None]

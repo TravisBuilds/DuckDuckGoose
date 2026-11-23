@@ -28,8 +28,9 @@ before it starts: see [WORLDS.md](WORLDS.md).
   An episode without a series has its own library. Nothing else changes for episodes without a cast.
 - **Character.** `character_id` (internal), `slug` (the id shots use, unique per library, e.g. `mara`),
   `name`, `role`, `description` (how they look, the same in every shot; up to 600 characters),
-  `body_type` (`humanoid`, `four_legged` or `other`; default `humanoid`) and `sheet_pose` (optional,
-  up to 200 characters). The last two only frame the character's sheet pictures (see
+  `body_type` (`humanoid`, `four_legged`, `other` or a body preset of the episode's show; default
+  `humanoid`) and `sheet_pose` (optional, up to 200 characters). The last two only frame the
+  character's sheet pictures (see
   [Character sheets](#character-sheets)); they are not part of a lock or of any shot prompt.
 - **Version.** A character's outfit: `version` (1, 2, ...), `label`, `outfit` (up to 600 characters: it
   goes into still prompts beside the description and never into a clip prompt), `derived_from_version`,
@@ -165,13 +166,28 @@ the character's `body_type` (`hfvg/cast_sheets.py`, `SHEET_BODIES`), and so is t
 | `four_legged` | standing on all four legs, the whole body and all four legs in view | 3:2, 4:3, 16:9, 1:1 |
 | `other` | a neutral resting pose natural to the character, the whole character in view | 1:1, 4:3, 3:4, 3:2, 2:3 |
 
-A character's `sheet_pose` (for example "sitting upright, wings folded") replaces the body type's
+A show adds its own body types in its show profile (`body_presets` in `show.json`,
+[SHOW-PROFILE.md](SHOW-PROFILE.md)): each has a label, its full-body framing, its head-sheet framing,
+its aspect ratios and the size of its dry-run stand-in picture. A preset with the id of a built-in
+body type reframes that type for the show. `GET /api/cast/body-presets?episode_id=<id>` (members)
+lists the built-in types and the show's presets with their labels; the Cast panel offers that list
+and falls back to the built-in three when it cannot load it. Body type ids are lowercase letters,
+digits and `_`, up to 32 characters; a character of an episode library may use its show's presets,
+a series library only the built-in types.
+
+A character's `sheet_pose` (for example "seated, hands folded") replaces the body type's
 pose: `Full body, the whole figure centered in frame. Pose: <sheet_pose>.` Set them when adding or
 editing a character (`POST /cast`, `/cast/with-picture` and `/cast/{character_id}` take `body_type`
 and `sheet_pose`; the pose goes through the content-policy check of the other character text). A
 change frames the sheet pictures made from then on; pictures already made, and locked versions, keep
 what they were made with. A humanoid character without its own pose gets exactly the prompts and
 aspect ratios sheets had before body types.
+
+**Sheet lead.** A sheet made from the description alone opens with the show's `sheet.lead`. The
+neutral default (a show without show data) is `Character design reference.`; an episode read through
+the legacy adapter keeps `Character design reference of an original character.`, so its prompts are
+byte-identical to what they were. Options from an upload, a new outfit and the turnaround open with
+the same engine text for every show.
 
 ### Revising a locked look (admins)
 
@@ -315,9 +331,10 @@ Existing settings that apply: `DATA_DIR`, `DATABASE_PATH`, `DRY_RUN`, `MODEL_PAT
 - **Vision identity judge.** Built behind `HFVG_QC_JUDGES_ENABLED` (off by default,
   [QC-JUDGES.md](QC-JUDGES.md)): `review_still` and `review_clip` check every `locked: true` entry of
   `shot_meta.cast` against its lock (locked description, master, turnaround and head sheet,
-  `lock_hash`). Drift fails the still or clip, which is re-rolled only through the bounded
-  `retry_shot` / `retry_clip`; an unsure check or a lock that changed on disk goes to a person. An
-  automatic retry is not part of it.
+  `lock_hash`), with the same rules for any kind of character. Drift fails the still or clip, which
+  is re-rolled only through the bounded `retry_shot` / `retry_clip`; an unsure check or a lock that
+  changed on disk goes to a person. An automatic retry is not part of it. The headcount counts every
+  `shot_meta.cast` entry by its slug, so a prop that acts as a character belongs in the cast.
 - **Seedance reference-to-video.** `shot_meta.cast` and the cast ref keys can be passed to a clip
   route. Clip planning ignores the cast today.
 - **Higgsfield Elements / Soul ID.** A locked version (master + turnaround + `lock_hash`) is the input

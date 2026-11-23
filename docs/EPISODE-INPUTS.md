@@ -51,6 +51,22 @@ An episode workflow requires several input files in `data/episodes/{episode_id}/
   - Must pass dimension/format QC (min 512px, valid image)
 - **Used by:** Shot generation prompts
 
+## Optional Files
+
+### `show.json` (show profile)
+- **Purpose:** everything show-specific the engine reads as data: body presets and the sheet lead,
+  identity rules, shot flags, beatmap character codes, lint clauses and near-word rules, playbook
+  rules, the plate's scale reference, the gate policy file and the real-people stance
+  (schema `hfvg.show/1`, docs/SHOW-PROFILE.md)
+- **Validation:** strict; every problem of the file is reported together. Optional: an episode
+  without one is read through the legacy adapter (its `prompt_kit.json` and `shots.json`, exactly
+  as before), or gets the neutral default profile when it has neither.
+  `HFVG_SHOW_PROFILE_PATH` names one profile for every episode without its own. A new show ships
+  one, even a two-key file (`schema` and `name`): a show with no animals, or with no characters at
+  all, needs no other data (docs/SHOW-PROFILE.md, "A show with no animals").
+- **Used by:** prompt lint, playbook, shot data, beatmap parsing, cast sheets, start plates, motion
+  suggestions, the headcount and identity judges (and their style note), the preflight
+
 ## Configuration Files
 
 ### `.cursor/environment.json` (for live mode)
@@ -66,6 +82,8 @@ Before spending credits at gate 1, the episode workflow validates:
 2. ✅ `shots.json` exists, shot IDs match beatmap
 3. ✅ `refs.json` exists and is valid
 4. ✅ `prompt_kit.json` exists and is valid JSON; live mode: its prompt lint kit loads
+   - `show.json` (optional) validates when present; the API preflight reports the profile's
+     source (`episode`, `env`, `legacy-adapter` or `default`) and digest
 5. ✅ All required refs (used in shots) either exist or are in `to_generate`
 6. ✅ Model configs are valid (supported model, valid params)
 7. ✅ Live mode: API key is configured
@@ -80,6 +98,7 @@ data/episodes/ep05/
 ├── shots.json           # Required: shot prompts and params
 ├── refs.json           # Required: ref specifications
 ├── prompt_kit.json     # Required: prompt engineering guide
+├── show.json           # Optional: show profile (docs/SHOW-PROFILE.md)
 ├── refs/               # Optional: pre-existing refs
 │   ├── r_duck.png
 │   └── r_scene_park.png
@@ -221,6 +240,23 @@ writes these keys for you.
 - An unknown character or version, or a locked sheet whose files changed, refuses the run. Preflight
   reports these in `cast_errors`.
 - `ref_keys` and refs.json keep working as before, alone or together with `cast`.
+
+### What the QC judges check against (`cast`, `count`, `props`)
+
+With the automated QC judges on ([QC-JUDGES.md](QC-JUDGES.md)), the shot plan is what they check:
+
+- Each `cast` entry is one figure, counted by its id and expected once, whatever the character is (a
+  person, a creature, a robot, a puppet, a prop that acts). Each locked entry also gets the identity
+  check.
+- `count` is the number of main characters in frame. When it is larger than the cast list, the main
+  characters without a cast entry are counted together as one group. A cast list longer than `count`
+  goes to a person.
+- The shot's `props` and `place` are not figures. A prop that acts as a character (a talking kettle)
+  belongs in the cast library, so it is counted and checked like any other character.
+- Any other figure standing out in the shot fails the headcount; figures only in the background go
+  to a person.
+- The first series' `duck_present` still declares its host outside `count`: the host is counted as
+  one more figure, or as one of the cast entries when the cast list is longer than `count`.
 
 ### Words in the picture (`allow_text`, `prompt_kit.json` `text_policy`)
 

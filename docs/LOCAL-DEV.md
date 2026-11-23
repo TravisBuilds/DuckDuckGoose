@@ -668,8 +668,9 @@ pytest -m "not slow"
 ### Automated QC judges
 
 - `HFVG_QC_JUDGES_ENABLED` - `true` registers the vision judges in the worker and the API (default
-  `false`: live QC escalates to human review). The model, prices, the `qc_judges` budget line cap
-  and the time limits are in [QC-JUDGES.md](QC-JUDGES.md). `DRY_RUN` makes no judge call.
+  `false`: live QC escalates to human review). The model (`provider/model`), its prices (required
+  for any model but the default), the `qc_judges` budget line cap (a number or `auto`) and the time
+  limits are in [QC-JUDGES.md](QC-JUDGES.md). `DRY_RUN` makes no judge call.
 
 ### Model Configuration
 

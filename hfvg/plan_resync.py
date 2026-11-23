@@ -1,7 +1,7 @@
 """GAP-28: re-sync the corrected Studio package into a running episode at G2 (no spend).
 
 The episode parses BEATMAP.md + shots.json ONCE at start; every later still re-roll, clip, clip QC
-and clip retry used that parse. A package corrected at G2 (ep05v2 2026-10-27: the duck vest wording
+and clip retry used that parse. A package corrected at G2 (ep05v2 2026-10-27: the host's vest wording
 and qc_fail_if) therefore never reached the prompts the harness actually sends. This module diffs the
 re-parsed package against the plans in force: text fields (prompt, end_prompt, clip_prompt,
 qc_fail_if) may change; structural fields (shot set, shot_meta, ref_keys, trim, model/duration/

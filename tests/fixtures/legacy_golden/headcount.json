@@ -1,0 +1,6410 @@
+{
+ "check_headcount": {
+  "cases": {
+   "cast_equal_count/as_declared": 0,
+   "cast_equal_count/background": 1,
+   "cast_equal_count/host_missing": 0,
+   "cast_equal_count/one_more_cast": 0,
+   "cast_equal_count/unexpected": 2,
+   "cast_no_count/as_declared": 3,
+   "cast_no_count/background": 4,
+   "cast_no_count/host_missing": 3,
+   "cast_no_count/one_more_cast": 3,
+   "cast_no_count/unexpected": 5,
+   "cast_over_count/as_declared": 6,
+   "cast_over_count/background": 7,
+   "cast_over_count/host_missing": 6,
+   "cast_over_count/one_more_cast": 6,
+   "cast_over_count/unexpected": 8,
+   "cast_over_count_host/as_declared": 9,
+   "cast_over_count_host/background": 10,
+   "cast_over_count_host/host_missing": 9,
+   "cast_over_count_host/one_more_cast": 9,
+   "cast_over_count_host/unexpected": 11,
+   "cast_under_count_host/as_declared": 12,
+   "cast_under_count_host/background": 13,
+   "cast_under_count_host/host_missing": 14,
+   "cast_under_count_host/one_more_cast": 15,
+   "cast_under_count_host/unexpected": 16,
+   "count2/as_declared": 17,
+   "count2/background": 18,
+   "count2/host_missing": 17,
+   "count2/one_more_cast": 19,
+   "count2/unexpected": 20,
+   "count2_host/as_declared": 21,
+   "count2_host/background": 22,
+   "count2_host/host_missing": 23,
+   "count2_host/one_more_cast": 24,
+   "count2_host/unexpected": 25,
+   "zero/as_declared": 26,
+   "zero/background": 27,
+   "zero/host_missing": 26,
+   "zero/one_more_cast": 26,
+   "zero/unexpected": 28,
+   "zero_host/as_declared": 29,
+   "zero_host/background": 30,
+   "zero_host/host_missing": 31,
+   "zero_host/one_more_cast": 29,
+   "zero_host/unexpected": 32
+  },
+  "values": [
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     },
+     {
+      "confidence": 1.0,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides); the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ben",
+      "label": "Ben",
+      "method": "fake_deterministic",
+      "reason": "Ben: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1; the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "host",
+      "label": "Host",
+      "method": "fake_deterministic",
+      "reason": "Host: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "host",
+      "label": "Host",
+      "method": "fake_deterministic",
+      "reason": "Host: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "host",
+      "label": "Host",
+      "method": "fake_deterministic",
+      "reason": "Host: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "other cast",
+      "method": "fake_deterministic",
+      "reason": "other cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "other cast",
+      "method": "fake_deterministic",
+      "reason": "other cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "other cast",
+      "method": "fake_deterministic",
+      "reason": "other cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: expected 1, counted 0",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "duck: expected 1, counted 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 3,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "other cast",
+      "method": "fake_deterministic",
+      "reason": "other cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "other cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "ana",
+      "label": "Ana",
+      "method": "fake_deterministic",
+      "reason": "Ana: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "other cast",
+      "method": "fake_deterministic",
+      "reason": "other cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 3,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: expected 1, counted 0",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "duck: expected 1, counted 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 3,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "expected": 2,
+      "figure": "_cast",
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 2,
+      "figure": null,
+      "label": "background figures",
+      "method": "fake_deterministic",
+      "reason": "background figures nobody declared: 2 (a person decides)",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "background figures nobody declared: 2 (a person decides)",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: expected 1, counted 0",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "duck: expected 1, counted 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 1.0,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   }
+  ]
+ },
+ "g2_rows": {
+  "bad_duck": "ValueError: duck must be a non-negative integer, got -1",
+  "bad_figure": "ValueError: figure id '../x' is not a cast id",
+  "figures": {
+   "background": 0,
+   "figures": {
+    "a": 2,
+    "b": 1
+   },
+   "unexpected": 1
+  },
+  "legacy": {
+   "animal": 3,
+   "cast": 2,
+   "duck": 1,
+   "other": 0
+  },
+  "legacy_other": {
+   "animal": 4,
+   "cast": 1,
+   "duck": 0,
+   "other": 3
+  },
+  "missing_cast": "ValueError: cast must be a non-negative integer, got None"
+ },
+ "legacy_counter": {
+  "cases": {
+   "cast_equal_count/extra/.mp4/calls": 0,
+   "cast_equal_count/extra/.mp4/headcount": 1,
+   "cast_equal_count/extra/.mp4/shot_animals": 2,
+   "cast_equal_count/extra/.png/calls": 3,
+   "cast_equal_count/extra/.png/headcount": 4,
+   "cast_equal_count/extra/.png/shot_animals": 2,
+   "cast_equal_count/match/.mp4/calls": 0,
+   "cast_equal_count/match/.mp4/headcount": 5,
+   "cast_equal_count/match/.mp4/shot_animals": 6,
+   "cast_equal_count/match/.png/calls": 3,
+   "cast_equal_count/match/.png/headcount": 7,
+   "cast_equal_count/match/.png/shot_animals": 6,
+   "cast_equal_count/no_host/.mp4/calls": 0,
+   "cast_equal_count/no_host/.mp4/headcount": 8,
+   "cast_equal_count/no_host/.mp4/shot_animals": 9,
+   "cast_equal_count/no_host/.png/calls": 3,
+   "cast_equal_count/no_host/.png/headcount": 8,
+   "cast_equal_count/no_host/.png/shot_animals": 9,
+   "cast_equal_count/short/.mp4/calls": 0,
+   "cast_equal_count/short/.mp4/headcount": 8,
+   "cast_equal_count/short/.mp4/shot_animals": 9,
+   "cast_equal_count/short/.png/calls": 3,
+   "cast_equal_count/short/.png/headcount": 10,
+   "cast_equal_count/short/.png/shot_animals": 9,
+   "cast_no_count/extra/.mp4/calls": 0,
+   "cast_no_count/extra/.mp4/headcount": 11,
+   "cast_no_count/extra/.mp4/shot_animals": 12,
+   "cast_no_count/extra/.png/calls": 3,
+   "cast_no_count/extra/.png/headcount": 13,
+   "cast_no_count/extra/.png/shot_animals": 12,
+   "cast_no_count/match/.mp4/calls": 0,
+   "cast_no_count/match/.mp4/headcount": 14,
+   "cast_no_count/match/.mp4/shot_animals": 12,
+   "cast_no_count/match/.png/calls": 3,
+   "cast_no_count/match/.png/headcount": 15,
+   "cast_no_count/match/.png/shot_animals": 12,
+   "cast_no_count/no_host/.mp4/calls": 0,
+   "cast_no_count/no_host/.mp4/headcount": 16,
+   "cast_no_count/no_host/.mp4/shot_animals": 12,
+   "cast_no_count/no_host/.png/calls": 3,
+   "cast_no_count/no_host/.png/headcount": 16,
+   "cast_no_count/no_host/.png/shot_animals": 12,
+   "cast_no_count/short/.mp4/calls": 0,
+   "cast_no_count/short/.mp4/headcount": 16,
+   "cast_no_count/short/.mp4/shot_animals": 12,
+   "cast_no_count/short/.png/calls": 3,
+   "cast_no_count/short/.png/headcount": 17,
+   "cast_no_count/short/.png/shot_animals": 12,
+   "cast_over_count/extra/.mp4/calls": 0,
+   "cast_over_count/extra/.mp4/headcount": 18,
+   "cast_over_count/extra/.mp4/shot_animals": 19,
+   "cast_over_count/extra/.png/calls": 3,
+   "cast_over_count/extra/.png/headcount": 20,
+   "cast_over_count/extra/.png/shot_animals": 19,
+   "cast_over_count/match/.mp4/calls": 0,
+   "cast_over_count/match/.mp4/headcount": 21,
+   "cast_over_count/match/.mp4/shot_animals": 22,
+   "cast_over_count/match/.png/calls": 3,
+   "cast_over_count/match/.png/headcount": 23,
+   "cast_over_count/match/.png/shot_animals": 22,
+   "cast_over_count/no_host/.mp4/calls": 0,
+   "cast_over_count/no_host/.mp4/headcount": 24,
+   "cast_over_count/no_host/.mp4/shot_animals": 25,
+   "cast_over_count/no_host/.png/calls": 3,
+   "cast_over_count/no_host/.png/headcount": 24,
+   "cast_over_count/no_host/.png/shot_animals": 25,
+   "cast_over_count/short/.mp4/calls": 0,
+   "cast_over_count/short/.mp4/headcount": 24,
+   "cast_over_count/short/.mp4/shot_animals": 25,
+   "cast_over_count/short/.png/calls": 3,
+   "cast_over_count/short/.png/headcount": 26,
+   "cast_over_count/short/.png/shot_animals": 25,
+   "cast_over_count_host/extra/.mp4/calls": 27,
+   "cast_over_count_host/extra/.mp4/headcount": 28,
+   "cast_over_count_host/extra/.mp4/shot_animals": 29,
+   "cast_over_count_host/extra/.png/calls": 3,
+   "cast_over_count_host/extra/.png/headcount": 30,
+   "cast_over_count_host/extra/.png/shot_animals": 29,
+   "cast_over_count_host/match/.mp4/calls": 27,
+   "cast_over_count_host/match/.mp4/headcount": 31,
+   "cast_over_count_host/match/.mp4/shot_animals": 32,
+   "cast_over_count_host/match/.png/calls": 3,
+   "cast_over_count_host/match/.png/headcount": 33,
+   "cast_over_count_host/match/.png/shot_animals": 32,
+   "cast_over_count_host/no_host/.mp4/calls": 27,
+   "cast_over_count_host/no_host/.mp4/headcount": 34,
+   "cast_over_count_host/no_host/.mp4/shot_animals": 35,
+   "cast_over_count_host/no_host/.png/calls": 3,
+   "cast_over_count_host/no_host/.png/headcount": 34,
+   "cast_over_count_host/no_host/.png/shot_animals": 35,
+   "cast_over_count_host/short/.mp4/calls": 27,
+   "cast_over_count_host/short/.mp4/headcount": 33,
+   "cast_over_count_host/short/.mp4/shot_animals": 36,
+   "cast_over_count_host/short/.png/calls": 3,
+   "cast_over_count_host/short/.png/headcount": 37,
+   "cast_over_count_host/short/.png/shot_animals": 36,
+   "cast_under_count_host/extra/.mp4/calls": 27,
+   "cast_under_count_host/extra/.mp4/headcount": 38,
+   "cast_under_count_host/extra/.mp4/shot_animals": 39,
+   "cast_under_count_host/extra/.png/calls": 3,
+   "cast_under_count_host/extra/.png/headcount": 40,
+   "cast_under_count_host/extra/.png/shot_animals": 39,
+   "cast_under_count_host/match/.mp4/calls": 27,
+   "cast_under_count_host/match/.mp4/headcount": 41,
+   "cast_under_count_host/match/.mp4/shot_animals": 42,
+   "cast_under_count_host/match/.png/calls": 3,
+   "cast_under_count_host/match/.png/headcount": 43,
+   "cast_under_count_host/match/.png/shot_animals": 42,
+   "cast_under_count_host/no_host/.mp4/calls": 27,
+   "cast_under_count_host/no_host/.mp4/headcount": 44,
+   "cast_under_count_host/no_host/.mp4/shot_animals": 45,
+   "cast_under_count_host/no_host/.png/calls": 3,
+   "cast_under_count_host/no_host/.png/headcount": 44,
+   "cast_under_count_host/no_host/.png/shot_animals": 45,
+   "cast_under_count_host/short/.mp4/calls": 27,
+   "cast_under_count_host/short/.mp4/headcount": 43,
+   "cast_under_count_host/short/.mp4/shot_animals": 46,
+   "cast_under_count_host/short/.png/calls": 3,
+   "cast_under_count_host/short/.png/headcount": 47,
+   "cast_under_count_host/short/.png/shot_animals": 46,
+   "count2/extra/.mp4/calls": 0,
+   "count2/extra/.mp4/headcount": 48,
+   "count2/extra/.mp4/shot_animals": 2,
+   "count2/extra/.png/calls": 3,
+   "count2/extra/.png/headcount": 49,
+   "count2/extra/.png/shot_animals": 2,
+   "count2/match/.mp4/calls": 0,
+   "count2/match/.mp4/headcount": 50,
+   "count2/match/.mp4/shot_animals": 6,
+   "count2/match/.png/calls": 3,
+   "count2/match/.png/headcount": 51,
+   "count2/match/.png/shot_animals": 6,
+   "count2/no_host/.mp4/calls": 0,
+   "count2/no_host/.mp4/headcount": 52,
+   "count2/no_host/.mp4/shot_animals": 9,
+   "count2/no_host/.png/calls": 3,
+   "count2/no_host/.png/headcount": 52,
+   "count2/no_host/.png/shot_animals": 9,
+   "count2/short/.mp4/calls": 0,
+   "count2/short/.mp4/headcount": 52,
+   "count2/short/.mp4/shot_animals": 9,
+   "count2/short/.png/calls": 3,
+   "count2/short/.png/headcount": 53,
+   "count2/short/.png/shot_animals": 9,
+   "count2_host/extra/.mp4/calls": 27,
+   "count2_host/extra/.mp4/headcount": 54,
+   "count2_host/extra/.mp4/shot_animals": 55,
+   "count2_host/extra/.png/calls": 3,
+   "count2_host/extra/.png/headcount": 56,
+   "count2_host/extra/.png/shot_animals": 55,
+   "count2_host/match/.mp4/calls": 27,
+   "count2_host/match/.mp4/headcount": 57,
+   "count2_host/match/.mp4/shot_animals": 58,
+   "count2_host/match/.png/calls": 3,
+   "count2_host/match/.png/headcount": 59,
+   "count2_host/match/.png/shot_animals": 58,
+   "count2_host/no_host/.mp4/calls": 27,
+   "count2_host/no_host/.mp4/headcount": 60,
+   "count2_host/no_host/.mp4/shot_animals": 61,
+   "count2_host/no_host/.png/calls": 3,
+   "count2_host/no_host/.png/headcount": 60,
+   "count2_host/no_host/.png/shot_animals": 61,
+   "count2_host/short/.mp4/calls": 27,
+   "count2_host/short/.mp4/headcount": 59,
+   "count2_host/short/.mp4/shot_animals": 62,
+   "count2_host/short/.png/calls": 3,
+   "count2_host/short/.png/headcount": 63,
+   "count2_host/short/.png/shot_animals": 62,
+   "zero/extra/.mp4/calls": 0,
+   "zero/extra/.mp4/headcount": 64,
+   "zero/extra/.mp4/shot_animals": 65,
+   "zero/extra/.png/calls": 3,
+   "zero/extra/.png/headcount": 64,
+   "zero/extra/.png/shot_animals": 65,
+   "zero/match/.mp4/calls": 0,
+   "zero/match/.mp4/headcount": 66,
+   "zero/match/.mp4/shot_animals": 67,
+   "zero/match/.png/calls": 3,
+   "zero/match/.png/headcount": 66,
+   "zero/match/.png/shot_animals": 67,
+   "zero/no_host/.mp4/calls": 0,
+   "zero/no_host/.mp4/headcount": 68,
+   "zero/no_host/.mp4/shot_animals": 69,
+   "zero/no_host/.png/calls": 3,
+   "zero/no_host/.png/headcount": 68,
+   "zero/no_host/.png/shot_animals": 69,
+   "zero/short/.mp4/calls": 0,
+   "zero/short/.mp4/headcount": 68,
+   "zero/short/.mp4/shot_animals": 69,
+   "zero/short/.png/calls": 3,
+   "zero/short/.png/headcount": 70,
+   "zero/short/.png/shot_animals": 69,
+   "zero_host/extra/.mp4/calls": 27,
+   "zero_host/extra/.mp4/headcount": 71,
+   "zero_host/extra/.mp4/shot_animals": 72,
+   "zero_host/extra/.png/calls": 3,
+   "zero_host/extra/.png/headcount": 73,
+   "zero_host/extra/.png/shot_animals": 72,
+   "zero_host/match/.mp4/calls": 27,
+   "zero_host/match/.mp4/headcount": 73,
+   "zero_host/match/.mp4/shot_animals": 74,
+   "zero_host/match/.png/calls": 3,
+   "zero_host/match/.png/headcount": 75,
+   "zero_host/match/.png/shot_animals": 74,
+   "zero_host/no_host/.mp4/calls": 27,
+   "zero_host/no_host/.mp4/headcount": 76,
+   "zero_host/no_host/.mp4/shot_animals": 77,
+   "zero_host/no_host/.png/calls": 3,
+   "zero_host/no_host/.png/headcount": 76,
+   "zero_host/no_host/.png/shot_animals": 77,
+   "zero_host/short/.mp4/calls": 27,
+   "zero_host/short/.mp4/headcount": 75,
+   "zero_host/short/.mp4/shot_animals": 78,
+   "zero_host/short/.png/calls": 3,
+   "zero_host/short/.png/headcount": 79,
+   "zero_host/short/.png/shot_animals": 78
+  },
+  "values": [
+   [
+    [
+     "clip.mp4",
+     "animal"
+    ]
+   ],
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 2, got 4",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 2, got 4",
+    "status": "FAIL"
+   },
+   [
+    [
+     "still_v1.png",
+     "cast"
+    ],
+    [
+     "still_v1.png",
+     "duck"
+    ],
+    [
+     "still_v1.png",
+     "animal"
+    ]
+   ],
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 2, got 3",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 2, got 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "animal count: 2 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "all animal checks passed",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {},
+      "escalate": true,
+      "passed": false,
+      "reason": "shot has no animal count to verify against",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "reason": "shot has no animal count to verify against",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 4; the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 4",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 1, got 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 2; the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3; the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 3",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 1, got 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1; the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "figure": null,
+      "label": "cast list",
+      "method": "fake_deterministic",
+      "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 2",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 1, got 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   [
+    [
+     "clip.mp4",
+     "animal"
+    ],
+    [
+     "clip.mp4",
+     "duck"
+    ]
+   ],
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 5,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 5",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 5",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 4",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 1, got 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3; unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 3",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 1, got 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 2",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 0,
+       "found": false,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "duck presence: expected 1, got 0",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 1, got 2; duck presence: expected 1, got 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 1, got 2",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 1, got 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 3,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 3, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 3, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 3, got 4",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 3, got 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 3,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 3, counted 2",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 3, counted 2; unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 3,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 3 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "animal count: 3 confirmed",
+      "status": "PASS"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "all animal checks passed",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 3,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 3, counted 2",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 3, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 3,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 3, counted 2",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: expected 1, counted 0",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 3, counted 2; duck: expected 1, counted 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 3, got 2",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 0,
+       "found": false,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "duck presence: expected 1, got 0",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 3, got 2; duck presence: expected 1, got 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 3, got 2",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 3, got 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 4",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 2, got 4",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 2, got 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 1",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 1",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: expected 2, counted 3",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "cast: expected 2, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 2, got 3",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 2, got 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "headcount matches the cast",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 2,
+      "figure": null,
+      "label": "cast",
+      "method": "fake_deterministic",
+      "reason": "cast: 2 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: expected 1, counted 0",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "no unexpected figures",
+      "status": "PASS"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "duck: expected 1, counted 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "animal count: 2 confirmed",
+      "status": "PASS"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 0,
+       "found": false,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "duck presence: expected 1, got 0",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "duck presence: expected 1, got 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "animal count: 2 confirmed",
+      "status": "PASS"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "all animal checks passed",
+    "status": "PASS"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 4",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 4",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 0, got 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 3",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 3",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 0, got 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 2",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 0, got 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 4,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 4",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 4,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 4",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 0, got 4",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 3,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 3",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 3,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 3",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 0, got 3",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 1,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: 1 as declared",
+      "status": "PASS"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "unexpected figures: expected 0, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "confidence": 0.9,
+      "counted": 0,
+      "expected": 1,
+      "figure": "_duck_host",
+      "label": "duck",
+      "method": "fake_deterministic",
+      "reason": "duck: expected 1, counted 0",
+      "status": "FAIL"
+     },
+     {
+      "confidence": 0.9,
+      "counted": 2,
+      "expected": 0,
+      "figure": null,
+      "label": "unexpected figures",
+      "method": "fake_deterministic",
+      "reason": "unexpected figures: expected 0, counted 2",
+      "status": "FAIL"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "duck: expected 1, counted 0; unexpected figures: expected 0, counted 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 2",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 0,
+       "found": false,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "duck presence: expected 1, got 0",
+      "status": "FAIL"
+     }
+    ],
+    "reason": "animal count: expected 0, got 2; duck presence: expected 1, got 0",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "check": "animal_count",
+      "details": {
+       "confidence": 0.9,
+       "count": 2,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": false,
+      "reason": "animal count: expected 0, got 2",
+      "status": "FAIL"
+     },
+     {
+      "check": "duck_presence",
+      "details": {
+       "confidence": 0.9,
+       "count": 1,
+       "found": true,
+       "method": "fake_deterministic",
+       "type_match": true
+      },
+      "escalate": false,
+      "passed": true,
+      "reason": "duck presence: 1 confirmed",
+      "status": "PASS"
+     }
+    ],
+    "reason": "animal count: expected 0, got 2",
+    "status": "FAIL"
+   },
+   {
+    "checks": [
+     {
+      "figure": null,
+      "label": "headcount",
+      "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+      "status": "NEEDS_REVIEW"
+     }
+    ],
+    "expected": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "reason": "counter error: the counts do not add up: 2 in frame but 2 cast and 1 ducks",
+    "status": "NEEDS_REVIEW"
+   }
+  ]
+ },
+ "legacy_row_answer": {
+  "cases": {
+   "cast_equal_count/c0_d1_o2": 0,
+   "cast_equal_count/c1_d0": 1,
+   "cast_equal_count/c2_d1": 2,
+   "cast_equal_count/c3_d2_o1": 3,
+   "cast_no_count/c0_d1_o2": 0,
+   "cast_no_count/c1_d0": 1,
+   "cast_no_count/c2_d1": 2,
+   "cast_no_count/c3_d2_o1": 3,
+   "cast_over_count/c0_d1_o2": 0,
+   "cast_over_count/c1_d0": 1,
+   "cast_over_count/c2_d1": 2,
+   "cast_over_count/c3_d2_o1": 3,
+   "cast_over_count_host/c0_d1_o2": 4,
+   "cast_over_count_host/c1_d0": 5,
+   "cast_over_count_host/c2_d1": 6,
+   "cast_over_count_host/c3_d2_o1": 7,
+   "cast_under_count_host/c0_d1_o2": 8,
+   "cast_under_count_host/c1_d0": 9,
+   "cast_under_count_host/c2_d1": 10,
+   "cast_under_count_host/c3_d2_o1": 11,
+   "count2/c0_d1_o2": 12,
+   "count2/c1_d0": 13,
+   "count2/c2_d1": 14,
+   "count2/c3_d2_o1": 15,
+   "count2_host/c0_d1_o2": 16,
+   "count2_host/c1_d0": 17,
+   "count2_host/c2_d1": 18,
+   "count2_host/c3_d2_o1": 19,
+   "zero/c0_d1_o2": 20,
+   "zero/c1_d0": 21,
+   "zero/c2_d1": 20,
+   "zero/c3_d2_o1": 22,
+   "zero_host/c0_d1_o2": 23,
+   "zero_host/c1_d0": 24,
+   "zero_host/c2_d1": 23,
+   "zero_host/c3_d2_o1": 25
+  },
+  "values": [
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 4,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 0,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 2,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 0,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 2,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "",
+    "together": [],
+    "unexpected": 6
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 0,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 2,
+      "matches": true
+     }
+    },
+    "method": "",
+    "together": [],
+    "unexpected": 4
+   }
+  ]
+ },
+ "reviewer_answer": {
+  "cases": {
+   "cast_equal_count/c0_d1_o2": 0,
+   "cast_equal_count/c1_d0": 1,
+   "cast_equal_count/c2_d1": 2,
+   "cast_equal_count/c3_d2_o1": 3,
+   "cast_no_count/c0_d1_o2": 0,
+   "cast_no_count/c1_d0": 1,
+   "cast_no_count/c2_d1": 2,
+   "cast_no_count/c3_d2_o1": 3,
+   "cast_over_count/c0_d1_o2": 0,
+   "cast_over_count/c1_d0": 1,
+   "cast_over_count/c2_d1": 2,
+   "cast_over_count/c3_d2_o1": 3,
+   "cast_over_count_host/c0_d1_o2": 4,
+   "cast_over_count_host/c1_d0": 5,
+   "cast_over_count_host/c2_d1": 6,
+   "cast_over_count_host/c3_d2_o1": 7,
+   "cast_under_count_host/c0_d1_o2": 8,
+   "cast_under_count_host/c1_d0": 9,
+   "cast_under_count_host/c2_d1": 10,
+   "cast_under_count_host/c3_d2_o1": 11,
+   "count2/c0_d1_o2": 12,
+   "count2/c1_d0": 13,
+   "count2/c2_d1": 14,
+   "count2/c3_d2_o1": 15,
+   "count2_host/c0_d1_o2": 16,
+   "count2_host/c1_d0": 17,
+   "count2_host/c2_d1": 18,
+   "count2_host/c3_d2_o1": 19,
+   "zero/c0_d1_o2": 20,
+   "zero/c1_d0": 21,
+   "zero/c2_d1": 22,
+   "zero/c3_d2_o1": 23,
+   "zero_host/c0_d1_o2": 24,
+   "zero_host/c1_d0": 25,
+   "zero_host/c2_d1": 26,
+   "zero_host/c3_d2_o1": 27
+  },
+  "values": [
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (rev)",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "ana",
+       "ben"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (rev)",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 4,
+      "ids": [
+       "host",
+       "ana"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (rev)",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 0,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 2,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "ana",
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (rev)",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (rev)",
+    "together": [
+     {
+      "count": 0,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 0,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 1,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 2,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 0
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 2,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [
+     {
+      "count": 3,
+      "ids": [
+       "_cast"
+      ],
+      "label": "cast",
+      "matches": true
+     }
+    ],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (rev)",
+    "together": [],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [],
+    "unexpected": 3
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {},
+    "method": "reviewer_headcount (reviewer)",
+    "together": [],
+    "unexpected": 6
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (rev)",
+    "together": [],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 0,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [],
+    "unexpected": 1
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 1,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [],
+    "unexpected": 2
+   },
+   {
+    "background": 0,
+    "confidence": 1.0,
+    "figures": {
+     "_duck_host": {
+      "count": 2,
+      "matches": true
+     }
+    },
+    "method": "reviewer_headcount (reviewer)",
+    "together": [],
+    "unexpected": 4
+   }
+  ]
+ },
+ "rosters": {
+  "bad_count_host": {
+   "expected_cast": null,
+   "roster": null
+  },
+  "cast_equal_count": {
+   "expected_cast": {
+    "animal": 2,
+    "cast": 2,
+    "duck": 0
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "ana",
+      "Ana",
+      1,
+      "Ana: a synthetic figure called Ana",
+      false,
+      true
+     ],
+     [
+      "ben",
+      "Ben",
+      1,
+      "Ben: a synthetic figure called Ben",
+      false,
+      true
+     ]
+    ]
+   }
+  },
+  "cast_no_count": {
+   "expected_cast": null,
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": false,
+       "name": "Ben"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "ana",
+      "Ana",
+      1,
+      "Ana: a synthetic figure called Ana",
+      false,
+      true
+     ],
+     [
+      "ben",
+      "Ben",
+      1,
+      "Ben: a synthetic figure called Ben",
+      false,
+      false
+     ]
+    ]
+   }
+  },
+  "cast_over_count": {
+   "expected_cast": {
+    "animal": 1,
+    "cast": 1,
+    "duck": 0
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ben",
+       "locked": true,
+       "name": "Ben"
+      }
+     ],
+     "note": "the shot plan says 1 main character(s) in frame but its cast lists 2: a person confirms who belongs in the shot",
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "ana",
+      "Ana",
+      1,
+      "Ana: a synthetic figure called Ana",
+      false,
+      true
+     ],
+     [
+      "ben",
+      "Ben",
+      1,
+      "Ben: a synthetic figure called Ben",
+      false,
+      true
+     ]
+    ]
+   }
+  },
+  "cast_over_count_host": {
+   "expected_cast": {
+    "animal": 2,
+    "cast": 1,
+    "duck": 1
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "host",
+       "locked": true,
+       "name": "Host"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "host",
+      "Host",
+      1,
+      "Host: a synthetic figure called Host",
+      false,
+      true
+     ],
+     [
+      "ana",
+      "Ana",
+      1,
+      "Ana: a synthetic figure called Ana",
+      false,
+      true
+     ]
+    ]
+   }
+  },
+  "cast_under_count_host": {
+   "expected_cast": {
+    "animal": 4,
+    "cast": 3,
+    "duck": 1
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "ana",
+       "locked": true,
+       "name": "Ana"
+      },
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "other cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "ana",
+      "Ana",
+      1,
+      "Ana: a synthetic figure called Ana",
+      false,
+      true
+     ],
+     [
+      "_cast",
+      "other cast",
+      2,
+      "",
+      true,
+      false
+     ],
+     [
+      "_duck_host",
+      "duck",
+      1,
+      "the series' duck host, not one of the shot's main characters",
+      false,
+      false
+     ]
+    ]
+   }
+  },
+  "count2": {
+   "expected_cast": {
+    "animal": 2,
+    "cast": 2,
+    "duck": 0
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "_cast",
+      "cast",
+      2,
+      "",
+      true,
+      false
+     ]
+    ]
+   }
+  },
+  "count2_host": {
+   "expected_cast": {
+    "animal": 3,
+    "cast": 2,
+    "duck": 1
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 2,
+       "group": true,
+       "id": "_cast",
+       "locked": false,
+       "name": "cast"
+      },
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "_cast",
+      "cast",
+      2,
+      "",
+      true,
+      false
+     ],
+     [
+      "_duck_host",
+      "duck",
+      1,
+      "the series' duck host, not one of the shot's main characters",
+      false,
+      false
+     ]
+    ]
+   }
+  },
+  "zero": {
+   "expected_cast": {
+    "animal": 0,
+    "cast": 0,
+    "duck": 0
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [],
+     "unexpected": 0
+    },
+    "figures": []
+   }
+  },
+  "zero_host": {
+   "expected_cast": {
+    "animal": 1,
+    "cast": 0,
+    "duck": 1
+   },
+   "roster": {
+    "as_dict": {
+     "figures": [
+      {
+       "expected": 1,
+       "group": false,
+       "id": "_duck_host",
+       "locked": false,
+       "name": "duck"
+      }
+     ],
+     "unexpected": 0
+    },
+    "figures": [
+     [
+      "_duck_host",
+      "duck",
+      1,
+      "the series' duck host, not one of the shot's main characters",
+      false,
+      false
+     ]
+    ]
+   }
+  }
+ }
+}

@@ -125,8 +125,8 @@ async def old_worker_phase(target: str, base: Path) -> dict:
 async def new_worker_phase(target: str, base: Path) -> dict:
     from temporalio.client import Client
 
+    from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
     from hfvg.config import config
-    from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
     from hfvg.temporal_converter import temporal_data_converter
     from tests.test_moderation_recovery import Harness, _child_result, _wait
     from tests.test_picture_assembly_round3 import MOVING, ClipFactory, _worker

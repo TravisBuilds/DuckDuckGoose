@@ -526,7 +526,7 @@ async def create_world_character_with_picture(
     name: str = Form(..., min_length=1, max_length=cast_store.NAME_MAX),
     role: str = Form("", max_length=cast_store.ROLE_MAX),
     description: str = Form("", max_length=cast_store.DESCRIPTION_MAX),
-    body_type: str = Form("", max_length=20),
+    body_type: str = Form("", max_length=32),
     sheet_pose: str = Form("", max_length=cast_store.POSE_MAX),
     rights: str = Form(""),
     depicts_real_person: str = Form("false"),

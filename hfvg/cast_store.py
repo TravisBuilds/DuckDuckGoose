@@ -22,6 +22,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import sqlite3
 from contextlib import contextmanager
@@ -57,9 +58,12 @@ POSE_MAX = 200
 LOCK_REVISE_ACTION = "version_lock_revise"
 
 # How a character's body is built; its sheet pictures are framed for it (hfvg.cast_sheets). A
-# character's own sheet pose, when it has one, replaces the body type's pose.
+# character's own sheet pose, when it has one, replaces the body type's pose. These are the built-in
+# body types; a show adds its own (show profile ``body_presets``, hfvg.show_profile; body_types()).
 BODY_TYPES = ("humanoid", "four_legged", "other")
+BODY_LABELS = {"humanoid": "Two legs, like a person", "four_legged": "Four legs", "other": "Another kind of body"}
 DEFAULT_BODY_TYPE = "humanoid"
+BODY_TYPE_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 # Rights attestation for every upload: the creator made the image or owns the rights to use it.
 RIGHTS_VALUES = ("original", "owned")
@@ -367,11 +371,12 @@ def _unique_slug(conn, kind: str, library_id: str, wanted: str) -> str:
 
 
 def _character_fields(name: str, role: str, description: str, outfit: str, slug: str | None,
-                      body_type: str | None = None, sheet_pose: str | None = None) -> dict:
+                      body_type: str | None = None, sheet_pose: str | None = None,
+                      episode_id: str | None = None) -> dict:
     fields = {"name": _clean(name, "Name", NAME_MAX, required=True), "role": _clean(role, "Role", ROLE_MAX),
               "description": _clean(description, "Description", DESCRIPTION_MAX),
               "outfit": _clean(outfit, "Outfit", OUTFIT_MAX), "slug": None,
-              "body": _body_fields(body_type, sheet_pose)}
+              "body": _body_fields(body_type, sheet_pose, episode_id)}
     if slug is not None:
         fields["slug"] = str(slug).strip().lower()
         if not SLUG_RE.match(fields["slug"]):
@@ -379,13 +384,41 @@ def _character_fields(name: str, role: str, description: str, outfit: str, slug:
     return fields
 
 
-def _body_fields(body_type: Any, sheet_pose: Any) -> dict:
-    """The body type and sheet pose a request sets (None leaves that one as it is)."""
+def _show_body_presets(episode_id: str | None) -> dict:
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
+
+    try:
+        return resolve_show_profile(episode_id).body_presets
+    except ShowProfileError as e:
+        raise CastError(f"The episode's show profile does not load: {e}") from None
+
+
+def body_types(episode_id: str | None = None) -> tuple[str, ...]:
+    """The body types a character may have: the built-ins, then the body presets of the episode's show
+    (None: the deployment's show profile). A show.json that does not load is refused, not skipped."""
+    return BODY_TYPES + tuple(p for p in _show_body_presets(episode_id) if p not in BODY_TYPES)
+
+
+def body_presets(episode_id: str | None = None) -> list[dict]:
+    """Every body type with its label and where it comes from (``built-in``, or ``show`` for the show's
+    own presets and the built-ins it reframes)."""
+    presets = _show_body_presets(episode_id)
+    rows = [{"value": b, "label": presets[b].label if b in presets else BODY_LABELS[b],
+             "source": "show" if b in presets else "built-in"} for b in BODY_TYPES]
+    return rows + [{"value": k, "label": p.label, "source": "show"} for k, p in presets.items()
+                   if k not in BODY_TYPES]
+
+
+def _body_fields(body_type: Any, sheet_pose: Any, episode_id: str | None = None) -> dict:
+    """The body type and sheet pose a request sets (None leaves that one as it is). A body type is a
+    built-in one or a body preset of the episode's show (body_types)."""
     fields: dict[str, str] = {}
     if body_type is not None:
         wanted = body_type.strip().lower() if isinstance(body_type, str) else None
         if wanted not in BODY_TYPES:
-            raise CastError(f"Body type must be one of: {', '.join(BODY_TYPES)}")
+            allowed = body_types(episode_id)
+            if not (wanted and BODY_TYPE_RE.match(wanted) and wanted in allowed):
+                raise CastError(f"Body type must be one of: {', '.join(allowed)}")
         fields["body_type"] = wanted
     if sheet_pose is not None:
         fields["sheet_pose"] = _clean(sheet_pose, "Sheet pose", POSE_MAX)
@@ -450,10 +483,26 @@ def create_character(library: tuple[str, str], name: str, role: str = "", descri
                      outfit: str = "", body_type: str | None = None, sheet_pose: str | None = None) -> dict:
     """A new character (with version 1) in the library. An explicit slug that is taken is refused;
     a slug made from the name gets a number when taken. Without a body type it is humanoid."""
-    fields = _character_fields(name, role, description, outfit, slug, body_type, sheet_pose)
+    fields = _character_fields(name, role, description, outfit, slug, body_type, sheet_pose,
+                               _show_episode(library, episode_id))
     with connect() as conn, _tx(conn):
         cid = _insert_character(conn, library, fields, actor, episode_id)
     return get_character(cid)
+
+
+def _show_episode(library: tuple[str, str], episode_id: str | None) -> str | None:
+    """The episode whose show profile names the body presets: the request's, else the library's own
+    episode (a series library without an episode reads the deployment's profile)."""
+    return episode_id or (library[1] if library[0] == "episode" else None)
+
+
+def _character_episode(character_id: str) -> str | None:
+    """The episode of a character in an episode's own library (None: a series library, or no such
+    character: the update then reports that)."""
+    with connect() as conn:
+        row = conn.execute("SELECT library_kind, library_id FROM cast_characters WHERE character_id = ?",
+                           (character_id,)).fetchone()
+    return row[1] if row and row[0] == "episode" else None
 
 
 def create_character_with_upload(library: tuple[str, str], name: str, role: str, description: str, data: bytes, *,
@@ -464,7 +513,8 @@ def create_character_with_upload(library: tuple[str, str], name: str, role: str,
     the checks of add_upload first; the character, its version and the picture (primary) are then
     recorded in one transaction, so a refused picture leaves no character and a refused character
     no picture record."""
-    fields = _character_fields(name, role, description, "", None, body_type, sheet_pose)
+    fields = _character_fields(name, role, description, "", None, body_type, sheet_pose,
+                               _show_episode(library, episode_id))
     info = inspect_image(data)
     with connect() as conn:
         with _tx(conn):
@@ -497,7 +547,10 @@ def update_character(character_id: str, *, name: str | None = None, role: str | 
         changes["role"] = _clean(role, "Role", ROLE_MAX)
     if description is not None:
         changes["description"] = _clean(description, "Description", DESCRIPTION_MAX)
-    body = _body_fields(body_type, sheet_pose)
+    show_episode = episode_id
+    if show_episode is None and isinstance(body_type, str) and body_type.strip().lower() not in BODY_TYPES:
+        show_episode = _character_episode(character_id)
+    body = _body_fields(body_type, sheet_pose, show_episode)
     with connect() as conn, _tx(conn):
         _character_row(conn, character_id)
         body = _set_body(conn, character_id, body, actor)

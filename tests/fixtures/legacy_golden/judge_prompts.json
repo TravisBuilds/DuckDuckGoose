@@ -1,0 +1,312 @@
+{
+ "counter_requests": {
+  "cast_no_count": {
+   "cache_key": "c81390a3e6bdcf1d78a85b2dcbcddcb324085dea76ebfca716f6928286d00acd",
+   "episode_id": null,
+   "images": 1,
+   "key_parts": {
+    "figures": [
+     [
+      "ana",
+      "Ana",
+      "Ana: a synthetic figure called Ana",
+      false
+     ],
+     [
+      "ben",
+      "Ben",
+      "Ben: a synthetic figure called Ben",
+      false
+     ]
+    ],
+    "media": "<still>",
+    "props": [],
+    "refs": [],
+    "times": null
+   },
+   "kind": "headcount",
+   "subject": "A01 still_v1.png",
+   "system_sha": "7c4961d7d4c6b31f",
+   "text": "Shot A01: 1 frame(s) to count.\nFigures:\n- ana: Ana: a synthetic figure called Ana\n- ben: Ben: a synthetic figure called Ben"
+  },
+  "cast_over_count_host": {
+   "cache_key": "db5c89c2f41a312be16de576929011ea18c7d4d716f4aca64674fb2c396573dd",
+   "episode_id": null,
+   "images": 1,
+   "key_parts": {
+    "figures": [
+     [
+      "host",
+      "Host",
+      "Host: a synthetic figure called Host",
+      false
+     ],
+     [
+      "ana",
+      "Ana",
+      "Ana: a synthetic figure called Ana",
+      false
+     ]
+    ],
+    "media": "<still>",
+    "props": [],
+    "refs": [],
+    "times": null
+   },
+   "kind": "headcount",
+   "subject": "A01 still_v1.png",
+   "system_sha": "7c4961d7d4c6b31f",
+   "text": "Shot A01: 1 frame(s) to count.\nFigures:\n- host: Host: a synthetic figure called Host\n- ana: Ana: a synthetic figure called Ana"
+  },
+  "cast_under_count_host": {
+   "cache_key": "fbf679e75df3f66853f8e52804fc807bbd35d9e1c31a63f000021040b3f110a3",
+   "episode_id": null,
+   "images": 1,
+   "key_parts": {
+    "figures": [
+     [
+      "ana",
+      "Ana",
+      "Ana: a synthetic figure called Ana",
+      false
+     ],
+     [
+      "_cast",
+      "other cast",
+      "",
+      true
+     ],
+     [
+      "_duck_host",
+      "duck",
+      "the series' duck host, not one of the shot's main characters",
+      false
+     ]
+    ],
+    "media": "<still>",
+    "props": [],
+    "refs": [],
+    "times": null
+   },
+   "kind": "headcount",
+   "subject": "A01 still_v1.png",
+   "system_sha": "7c4961d7d4c6b31f",
+   "text": "Shot A01: 1 frame(s) to count.\nFigures:\n- ana: Ana: a synthetic figure called Ana\n- _cast: other cast, the shot's main characters that have no description here (every character that is a subject of the shot and none of the other listed ids)\n- _duck_host: the series' duck host, not one of the shot's main characters"
+  },
+  "count2": {
+   "cache_key": "0454c284ceae4ffd8e2e5b3528a668712cefd31535d1a7355691a8516fc04956",
+   "episode_id": null,
+   "images": 1,
+   "key_parts": {
+    "figures": [
+     [
+      "_cast",
+      "cast",
+      "",
+      true
+     ]
+    ],
+    "media": "<still>",
+    "props": [],
+    "refs": [],
+    "times": null
+   },
+   "kind": "headcount",
+   "subject": "A01 still_v1.png",
+   "system_sha": "7c4961d7d4c6b31f",
+   "text": "Shot A01: 1 frame(s) to count.\nFigures:\n- _cast: cast, the shot's main characters that have no description here (every character that is a subject of the shot and none of the other listed ids)"
+  },
+  "count2_host": {
+   "cache_key": "3f317ab0346790a826123c958b1c5563094556506f92e1209ec54512d901a703",
+   "episode_id": null,
+   "images": 1,
+   "key_parts": {
+    "figures": [
+     [
+      "_cast",
+      "cast",
+      "",
+      true
+     ],
+     [
+      "_duck_host",
+      "duck",
+      "the series' duck host, not one of the shot's main characters",
+      false
+     ]
+    ],
+    "media": "<still>",
+    "props": [
+     "Lamp: a brass lamp on the desk"
+    ],
+    "refs": [],
+    "times": null
+   },
+   "kind": "headcount",
+   "subject": "A01 still_v1.png",
+   "system_sha": "7c4961d7d4c6b31f",
+   "text": "Shot A01: 1 frame(s) to count.\nFigures:\n- _cast: cast, the shot's main characters that have no description here (every character that is a subject of the shot and none of the other listed ids)\n- _duck_host: the series' duck host, not one of the shot's main characters\nNot figures (props and the setting): Lamp: a brass lamp on the desk"
+  },
+  "zero": {
+   "cache_key": "2dcc4ab898736c87c360c2c530aab69a61e94c5c6247d5e640d224d04cb69bd3",
+   "episode_id": null,
+   "images": 1,
+   "key_parts": {
+    "figures": [],
+    "media": "<still>",
+    "props": [],
+    "refs": [],
+    "times": null
+   },
+   "kind": "headcount",
+   "subject": "A01 still_v1.png",
+   "system_sha": "7c4961d7d4c6b31f",
+   "text": "Shot A01: 1 frame(s) to count.\nThe shot declares no figures: every figure in frame is unexpected or background."
+  }
+ },
+ "host_profile": {
+  "apparel": {
+   "tuque": "cream tuque with a pom",
+   "vest": "vest fading from cream to olive"
+  },
+  "hint_signs": [
+   "neck_ring"
+  ],
+  "label": "Duck",
+  "min_height_fraction": 0.12,
+  "name": "duck_host",
+  "presence": [
+   "duck_role",
+   "host"
+  ],
+  "presence_note": "host role",
+  "signs": {
+   "bill": "bill shape and length",
+   "body": "body shape",
+   "head": "head shape",
+   "neck_ring": "a white neck ring (0 absent, 2 clearly present)",
+   "too_small": "is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)"
+  },
+  "state_features": {
+   "B": [
+    "tuft",
+    "3-lobe tuft at a quarter of the head height"
+   ]
+  },
+  "state_key": "duck_state"
+ },
+ "identity_requests": {
+  "generic": {
+   "cache_key": "50e207ae0140e4c2447d343a5c25d9dd66393e8bcc6767c51b84dc8cb7f6e213",
+   "episode_id": "ep96",
+   "images": 1,
+   "key_parts": {
+    "composite": "<composite>",
+    "criteria": {
+     "description": "a small round robot",
+     "lock_hash": "hhhhhhhhhhhhhhhh",
+     "profile": "locked_character",
+     "slug": "pip",
+     "version": 2
+    },
+    "panels": [
+     "the locked sheet, full body",
+     "the locked sheet, head"
+    ],
+    "state": null
+   },
+   "kind": "identity",
+   "result_keys": [
+    "apparel",
+    "confidence",
+    "reason",
+    "signs",
+    "total_minor_score",
+    "verdict"
+   ],
+   "subject": "A01 pip",
+   "system_sha": "1302b17e86359f65",
+   "text": "Character: Pip (version 2). Locked description: a small round robot"
+  },
+  "host_b": {
+   "cache_key": "61db565e6738d0d2766326e8e9decadb206b2f11075a06adc3f68cf0a00b781c",
+   "episode_id": "ep96",
+   "images": 1,
+   "key_parts": {
+    "composite": "<composite>",
+    "criteria": {
+     "description": "the duck host",
+     "lock_hash": null,
+     "profile": "duck_host",
+     "slug": "duck",
+     "version": null
+    },
+    "panels": [],
+    "state": "B"
+   },
+   "kind": "identity",
+   "result_keys": [
+    "apparel",
+    "confidence",
+    "reason",
+    "signs",
+    "total_minor_score",
+    "tuft",
+    "verdict"
+   ],
+   "subject": "A02 duck",
+   "system_sha": "c5f578e771d2b30a",
+   "text": "Character: Duck. Locked description: the duck host"
+  },
+  "host_none": {
+   "cache_key": "67cae8d6efdfdd9b0f18f6d2a9a0efaa8dd1192fcb818b4c4b9fd2da9c829ac7",
+   "episode_id": "ep96",
+   "images": 1,
+   "key_parts": {
+    "composite": "<composite>",
+    "criteria": {
+     "description": "the duck host",
+     "lock_hash": null,
+     "profile": "duck_host",
+     "slug": "duck",
+     "version": null
+    },
+    "panels": [],
+    "state": null
+   },
+   "kind": "identity",
+   "result_keys": [
+    "apparel",
+    "confidence",
+    "reason",
+    "signs",
+    "total_minor_score",
+    "verdict"
+   ],
+   "subject": "A03 duck",
+   "system_sha": "2b2060c93289834f",
+   "text": "Character: Duck. Locked description: the duck host"
+  }
+ },
+ "identity_systems": {
+  "generic/none": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: the character in the frame, body; panel 2: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- face: the face or front as the sheet shows it: its shape and features\n- surface: what the character is made of or covered in, as the sheet shows it: colour, texture, length and style\n- colours: the colours and markings\n- outfit: the clothes and accessories of the locked outfit (0 when the sheet shows none and the frame adds none)\n- proportions: shape, build and proportions of the whole character and its parts\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "generic/refs": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: ref; panel 2: ref; panel 3: the character in the frame, body; panel 4: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- face: the face or front as the sheet shows it: its shape and features\n- surface: what the character is made of or covered in, as the sheet shows it: colour, texture, length and style\n- colours: the colours and markings\n- outfit: the clothes and accessories of the locked outfit (0 when the sheet shows none and the frame adds none)\n- proportions: shape, build and proportions of the whole character and its parts\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "generic/sheet": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: master; panel 2: turnaround_three_quarter; panel 3: head_sheet; panel 4: the character in the frame, body; panel 5: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- face: the face or front as the sheet shows it: its shape and features\n- surface: what the character is made of or covered in, as the sheet shows it: colour, texture, length and style\n- colours: the colours and markings\n- outfit: the clothes and accessories of the locked outfit (0 when the sheet shows none and the frame adds none)\n- proportions: shape, build and proportions of the whole character and its parts\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/none/B": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: the character in the frame, body; panel 2: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nThis is a B shot: report the tuft (3-lobe tuft at a quarter of the head height) as present and correct.\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/none/None": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: the character in the frame, body; panel 2: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/none/T": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: the character in the frame, body; panel 2: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/refs/B": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: ref; panel 2: ref; panel 3: the character in the frame, body; panel 4: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nThis is a B shot: report the tuft (3-lobe tuft at a quarter of the head height) as present and correct.\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/refs/None": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: ref; panel 2: ref; panel 3: the character in the frame, body; panel 4: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/refs/T": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: ref; panel 2: ref; panel 3: the character in the frame, body; panel 4: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/sheet/B": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: master; panel 2: turnaround_three_quarter; panel 3: head_sheet; panel 4: the character in the frame, body; panel 5: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nThis is a B shot: report the tuft (3-lobe tuft at a quarter of the head height) as present and correct.\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/sheet/None": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: master; panel 2: turnaround_three_quarter; panel 3: head_sheet; panel 4: the character in the frame, body; panel 5: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge.",
+  "host/sheet/T": "You check that a character in a frame of a video is the locked character of its character sheet. The image is a strip of panels, left to right (panel 1: master; panel 2: turnaround_three_quarter; panel 3: head_sheet; panel 4: the character in the frame, body; panel 5: the character in the frame, head). Compare the frame panels with the sheet panels and the locked description.\nScore each sign 0 (on model), 1 (minor difference) or 2 (clear drift, a different look):\n- bill: bill shape and length\n- head: head shape\n- neck_ring: a white neck ring (0 absent, 2 clearly present)\n- body: body shape\n- too_small: is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)\nApparel (present: is it worn; correct: does it match the sheet):\n- tuque: cream tuque with a pom\n- vest: vest fading from cream to olive\nAnswer with a JSON object only: {\"signs\": {\"<sign>\": {\"score\": 0 | 1 | 2, \"confidence\": number 0-1, \"evidence\": \"a few words\"}}, \"apparel\": {\"<item>\": {\"present\": bool, \"correct\": bool}}, \"features\": {\"<feature>\": {\"present\": bool, \"correct\": bool}}, \"verdict\": \"PASS\" | \"FAIL\" | \"ESCALATE\", \"reason\": \"a few words\", \"confidence\": number 0-1}. Use ESCALATE when the frame does not show enough of the character to judge."
+ },
+ "judge_version": "2",
+ "systems": {
+  "detect": "You locate characters in one frame of a video. For every character id listed, say whether that character is visible and, when it is, give its bounding box and the box of its head (its top part when it has no head) as fractions of the image width and height (x, y is the top-left corner).\nAnswer with a JSON object only: {\"characters\": {\"<id>\": {\"found\": true | false, \"confidence\": number 0-1, \"box\": {\"x\": n, \"y\": n, \"w\": n, \"h\": n} | null, \"head\": {\"x\": n, \"y\": n, \"w\": n, \"h\": n} | null}}}.\nconfidence is how sure you are that the character is (or is not) in the frame. Answer for every id.",
+  "fail_if": "You check generated video clips for declared failure conditions. The images are frames spread across the whole clip, in time order. For every numbered condition say whether the clip shows it in any frame.\nAnswer with a JSON object only: {\"conditions\": [{\"n\": number, \"violated\": true | false, \"confidence\": number 0-1, \"detail\": \"a few words: what you saw, in which frame\"}]}, one entry per condition. confidence is how sure you are of that answer.",
+  "headcount": "You count the figures in frames of a video shot. The images before the reference images are the frames to count (one still, or frames from one clip). The request lists the figures the shot declares, each with an id: a character described by its look (a person, a creature, a robot, a puppet, an object that acts as a character, or anything else), or a group of the shot's main characters that have no description, counted together.\nCount, in the frame that shows the most of each:\n- for every listed id: how many figures in the frame are that one (0 when it is not in frame; a group: how many figures belong to it), and matches: false when a figure counted under a described character's id does not look like its description or reference image, else true;\n- unexpected: figures that are not listed and stand out as subjects of the shot (in the foreground, acting, or as prominent as a listed figure);\n- background: figures that are not listed and are only part of the background (passers-by, a crowd).\nThe props and the setting named in the request are not figures: do not count them.\nWhen a clip shows different numbers in different frames, give the largest number seen in one frame.\nAnswer with a JSON object only: {\"figures\": {\"<id>\": {\"count\": int, \"matches\": true | false}}, \"unexpected\": int, \"background\": int, \"confidence\": number 0-1, \"notes\": \"a few words\"}, with an entry for every listed id. confidence is how sure you are of every count.",
+  "still": "You are the quality-control reviewer of a short video episode. You judge ONE generated still image (the first image) against the prompt it was generated from and the shot's reference images (the images after it: characters, props and the place, in the plan's order).\nAnswer with a JSON object only: {\"verdict\": \"pass\" | \"fail\" | \"unsure\", \"confidence\": number 0-1, \"issues\": [short reasons]}.\n- \"fail\": the still clearly contradicts the prompt (a main subject missing or extra, the wrong action, setting or framing), a character, prop or place clearly differs from its reference image or description, or it has a visible defect (a malformed figure: missing, extra or fused limbs or parts, a garbled face; unwanted text, letters or watermarks). Name every problem in issues.\n- \"pass\": none of those is visible. issues is empty.\n- \"unsure\": you cannot tell (too small, hidden, ambiguous).\nconfidence is how sure you are of the verdict."
+ }
+}

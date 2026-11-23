@@ -190,6 +190,10 @@ async def preflight_validate_episode_activity(
             if is_live:
                 from hfvg.prompt_lint import lint_kit_problems
                 problems.extend(lint_kit_problems(episode_id))
+
+    # 4c. show.json (optional; HFVG_SHOW_PROFILE_PATH names one for every episode): validated when present
+    from hfvg.show_profile import declared_source, resolve_show_profile, show_profile_problems
+    problems.extend(show_profile_problems(episode_id))
     
     # 5. Check that all refs used in shots are available or to_generate
     # Extract ref keys from shot prompts (look for r_* patterns)
@@ -284,10 +288,16 @@ async def preflight_validate_episode_activity(
     
     # 8b. Playbook moderation lint config (B5): unknown hard-rule names fail loudly in every mode
     from hfvg.moderation_lint import ModerationLintError, hard_rules
+    from hfvg.show_profile import ShowProfileError
     try:
-        hard_rules()
-    except ModerationLintError as e:
-        problems.append(str(e))
+        show = resolve_show_profile(episode_id)
+    except ShowProfileError:
+        show = None  # reported by 4c
+    if show is not None:
+        try:
+            hard_rules(show)
+        except ModerationLintError as e:
+            problems.append(str(e))
 
     # 9. Live mode: a manual Higgsfield balance must be recorded and recent (GC.01, B8). There is
     # no balance endpoint, so a stale entry would let GC.01 headroom pass on an old number.
@@ -324,7 +334,7 @@ async def preflight_validate_episode_activity(
     
     activity.logger.info(f"Episode {episode_id} passed preflight validation")
     
-    return {
+    result = {
         "status": "passed",
         "episode_id": episode_id,
         "validated_shots": len([s for s in shots_data if not shots_subset or s in shots_subset]),
@@ -332,3 +342,8 @@ async def preflight_validate_episode_activity(
         "to_generate_refs": len(to_generate_refs),
         "object_contact": object_contact_shots,
     }
+    if declared_source(episode_id):
+        # reported for a show.json only: an episode without one keeps the result it always had
+        show = resolve_show_profile(episode_id)
+        result["show_profile"] = {"source": show.source, "digest": show.digest}
+    return result

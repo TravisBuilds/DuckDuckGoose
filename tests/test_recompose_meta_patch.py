@@ -127,7 +127,7 @@ def test_recompose_headcount_checks_recompose_still_against_its_cast(client, epi
     plans = {"A01": {"version": 5, "n": 1, "shot_meta": {"count": 2, "characters": ["H", "M"], "duck": False},
                      "still_ready": True, "decision": None, "finished": False}}
     monkeypatch.setattr(api_main, "temporal_client", _Client(_Handle(dict(META), plans)))
-    monkeypatch.setattr("hfvg.qc.animal_count.get_animal_counter", lambda: None)
+    monkeypatch.setattr("hfvg.qc.headcount.get_cast_counter", lambda: None)
     r = c.get("/api/episodes/ep77/recompose-headcount")
     assert r.status_code == 200 and r.json()["shots"]["A01"]["status"] == "NEEDS_REVIEW", r.text
     record_headcount("ep77", "A01", 5, {"cast": 1, "duck": 0, "other": 0}, by="t",

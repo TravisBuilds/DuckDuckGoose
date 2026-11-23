@@ -1050,9 +1050,9 @@ test_mutation 64 "M-P3a Lint checks the count clause" \
 
 # 65. M-P3b Lint forbids 'nothing else moves'
 test_mutation 65 "M-P3b Lint forbids 'nothing else moves'" \
-    "hfvg/prompt_lint.py" \
+    "hfvg/compat/legacy_show.py" \
     "tests/test_prompt_lint.py::test_nothing_else_moves_is_forbidden" \
-    sed -i 's/^DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")/DEFAULT_FORBIDDEN_PHRASES = ("realistic wild",)  # MUTATED/'
+    sed -i 's/^FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")$/FORBIDDEN_PHRASES = ("realistic wild",)  # MUTATED/'
 
 # 66. M-P3c Lint is enforced in live mode  
 test_mutation 66 "M-P3c Lint is enforced in live mode" \
@@ -1064,13 +1064,13 @@ test_mutation 66 "M-P3c Lint is enforced in live mode" \
 test_mutation 67 "M-P3d Lint applies the banned-decor list" \
     "hfvg/prompt_lint.py" \
     "tests/test_prompt_lint.py::test_banned_decor_words_forbidden" \
-    sed -i 's/^    for word in kit.banned_decor:/    for word in ():  # MUTATED/'
+    sed -i 's/^    for word in rules.banned_words:$/    for word in ():  # MUTATED/'
 
 # 68. M-P3e Lint requires the antler clause when an antler character is present
 test_mutation 68 "M-P3e Lint requires the antler clause when an antler character is present" \
-    "hfvg/prompt_lint.py" \
+    "hfvg/compat/legacy_show.py" \
     "tests/test_prompt_lint.py::test_antler_clause_required_when_antler_character_present" \
-    sed -i 's/^    if present \& {c.lower() for c in kit.antler_characters}:/    if False:  # MUTATED/'
+    sed -i 's/^    if antler_codes:$/    if False:  # MUTATED/'
 
 # 69. M-R4a shot_meta.count comes from shots.json
 test_mutation 69 "M-R4a shot_meta.count comes from shots.json" \
@@ -1279,7 +1279,7 @@ test_mutation 101 "M-R4G GET episode unknown workflow is 404" \
 test_mutation 102 "M-R4H upload-shots validates shots.json" \
     "api/main.py" \
     "tests/test_round4_shot_data.py::test_upload_shots_route_validates_and_stores" \
-    sed -i 's/^        plans = parse_shots(json.loads(shots_bytes))$/        plans = {"x": 1}  # MUTATED/'
+    sed -i 's/^        plans = parse_shots(json.loads(shots_bytes), episode_profile(episode_id))$/        plans = {"x": 1}  # MUTATED/'
 
 # 103. M-R4I Lint kit loads the lint section of a full prompt_kit.json
 test_mutation 103 "M-R4I Lint kit loads the lint section of a full prompt_kit.json" \
@@ -1289,9 +1289,9 @@ test_mutation 103 "M-R4I Lint kit loads the lint section of a full prompt_kit.js
 
 # 104. M-R4J Lint requires antler/duck clauses on shot_meta flags
 test_mutation 104 "M-R4J Lint requires antler/duck clauses on shot_meta flags" \
-    "hfvg/prompt_lint.py" \
+    "hfvg/compat/legacy_show.py" \
     "tests/test_round4_shot_data.py::test_lint_flags_require_antler_and_duck_clauses_without_character_codes" \
-    sed -i 's/^        if meta.get(flag) and not (present \& {c.lower() for c in codes}):$/        if False:  # MUTATED/'
+    sed -i 's/^    when = {"all": \[{"flag": flag}, {"not": {"characters_any": list(codes)}}\]} if codes else {"flag": flag}$/    when = {"not": {"always": True}}  # MUTATED/'
 
 # 105. M-R5a Still provider cap follows its model (not a global 3)
 test_mutation 105 "M-R5a Still provider cap follows its model" \
@@ -2282,7 +2282,7 @@ test_mutation 272 "review_clip fails a still-only clip (per-clip stillgate)" \
 
 # 273: G-QC-2g: No animal checker escalates (never a silent pass)
 test_mutation 273 "No animal checker -> NEEDS_REVIEW" \
-    "hfvg/qc/animal_count.py" \
+    "hfvg/compat/species_counter.py" \
     "tests/test_picture_assembly_round3.py::TestAnimalChecks::test_no_checker_escalates_never_passes" \
     sed -i 's/^        "status": NEEDS_REVIEW,$/        "status": PASS,  # MUTATED/'
 
@@ -2861,7 +2861,7 @@ test_mutation 368 "G1 real per-call estimates (pre-approved still not priced)" \
 test_mutation 369 "moderation lint before live still submit" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round7_moderation_lint.py::test_live_hard_violation_refuses_before_estimate_reserve_and_submit" \
-    sed -i 's/^    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True)$/    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)  # MUTATED/'
+    sed -i 's/^    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True,$/    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False,  # MUTATED/'
 
 # 370: B6: every declared code default is allowed by model_caps
 test_mutation 370 "ref resolution default validated against model_caps" \
@@ -3252,7 +3252,7 @@ test_mutation 433 "unknown lint value fails closed" \
 test_mutation 434 "default lint profile has no bare-waves rule" \
     "hfvg/prompt_lint.py" \
     "tests/test_default_prompt_lint.py::test_default_profile_requires_no_series_clauses" \
-    sed -i 's/^\(    if \)kit\.forbid_bare_waves and \(.*\)$/\1\2  # MUTATED/'
+    sed -i 's/^\(    if \)rules\.forbid_bare_waves and \(.*\)$/\1\2  # MUTATED/'
 
 # 435: the live episode preflight refuses a lint kit the paid submits cannot load
 test_mutation 435 "live preflight refuses a broken prompt lint kit" \
@@ -5106,29 +5106,29 @@ test_mutation 743 "qc judges: a failed call is not retried at once" \
 test_mutation 744 "qc judges: the counter cache follows the still's content" \
     "hfvg/qc/vision_counter.py" \
     "tests/test_qc_vision_counter.py::test_a_reload_of_the_g2_page_does_not_pay_again" \
-    sed -i 's/^            key_parts = {"media": file_sha256(media), "times": times, "cast": described,$/            key_parts = {"media": media.name, "times": times, "cast": described,  # MUTATED/'
+    sed -i 's/^            key_parts = {"media": file_sha256(media), "times": times, "figures": listed,$/            key_parts = {"media": media.name, "times": times, "figures": listed,  # MUTATED/'
 
-# 745: a counter that cannot answer at G2 is NEEDS_REVIEW for that species
+# 745: a counter that cannot answer at G2 is NEEDS_REVIEW for that shot
 test_mutation 745 "qc judges: a G2 counter error is needs review" \
-    "hfvg/qc/g2_headcount.py" \
+    "hfvg/qc/headcount.py" \
     "tests/test_qc_vision_counter.py::test_a_counter_that_cannot_answer_is_needs_review_and_asked_once[upstream-error]" \
-    sed -i 's/^\(                           "status": \)NEEDS_REVIEW\(, "reason": f"{species}: counter error: {str(e)\[:200\]}",\)$/\1PASS\2  # MUTATED/'
+    sed -i 's/^        rows = \[_row(None, "headcount", NEEDS_REVIEW, _unanswered(e))\]$/        rows = [_row(None, "headcount", PASS, _unanswered(e))]  # MUTATED/'
 
 # 746: an unsure G2 count is NEEDS_REVIEW, never a pass or a fail
 test_mutation 746 "qc judges: a low-confidence G2 count is needs review" \
-    "hfvg/qc/g2_headcount.py" \
+    "hfvg/qc/headcount.py" \
     "tests/test_qc_vision_counter.py::test_low_confidence_is_needs_review" \
-    sed -i 's/^        if conf < confidence_threshold:$/        if False:  # MUTATED/'
+    sed -i 's/^    if conf < confidence_threshold:$/    if False:  # MUTATED/'
 
 # 747: a counter error in the assembly QC is NEEDS_REVIEW for the shot (not a crash and an assembly retry)
 test_mutation 747 "qc judges: an assembly counter error is needs review" \
-    "hfvg/qc/animal_count.py" \
+    "hfvg/activities/qc.py" \
     "tests/test_qc_vision_counter.py::test_a_counter_error_in_the_assembly_is_needs_review_not_a_retry" \
-    sed -i '/a counter that cannot answer is a person.s call$/{n;s/^            return {"status": NEEDS_REVIEW, "passed": False, "escalate": True,$/            return {"status": PASS, "passed": True, "escalate": False,  # MUTATED/}'
+    sed -i 's/^            reviews\.append(line)$/            pass  # MUTATED/'
 
 # 748: an unsure count in the assembly QC is NEEDS_REVIEW
 test_mutation 748 "qc judges: a low-confidence assembly count is needs review" \
-    "hfvg/qc/animal_count.py" \
+    "hfvg/compat/species_counter.py" \
     "tests/test_picture_assembly_round3.py::TestAnimalChecks::test_deterministic_counter" \
     sed -i 's/^        if confidence < self\.confidence_threshold:$/        if False:  # MUTATED/'
 
@@ -5222,6 +5222,138 @@ test_mutation 763 "round ledger: a moderation resubmit counts the earlier resubm
     "hfvg/budget.py" \
     "tests/test_moderation_recovery.py::TestLadderDecisions::test_a_moderation_resubmit_does_not_use_the_owners_paid_retry" \
     sed -i 's/^    return bool(retry_key) and retry_key\[0\] == "m" and retry_key\[1:\]\.isdigit()$/    return False  # MUTATED/'
+
+# 764: a figure counted under a character's id that may not be that character goes to a person
+test_mutation 764 "headcount: a figure that may not be the declared character needs review" \
+    "hfvg/qc/headcount.py" \
+    "tests/test_qc_any_show.py::test_a_figure_that_may_not_be_the_declared_character_goes_to_a_person" \
+    sed -i 's/^    if matches is False:$/    if False:  # MUTATED/'
+
+# 765: a figure nobody declared that stands out in the shot fails the headcount
+test_mutation 765 "headcount: an unexpected figure fails" \
+    "hfvg/qc/headcount.py" \
+    "tests/test_qc_any_show.py::test_a_second_robot_a_missing_person_or_a_stranger_fails[a-stranger-in-the-shot]" \
+    sed -i 's/^\(    rows\.append(_row(None, "unexpected figures", \)FAIL if unexpected else PASS,$/\1PASS,  # MUTATED/'
+
+# 766: a declared figure the counter did not count is a person's call, never a pass
+test_mutation 766 "headcount: a declared figure left uncounted needs review" \
+    "hfvg/qc/headcount.py" \
+    "tests/test_g2_headcount.py::test_a_reviewer_counts_each_cast_id_and_the_figures_nobody_declared" \
+    sed -i 's/^\(            rows\.append(_row(fig\.id, fig\.name, \)NEEDS_REVIEW\(, f"{fig\.name}: not counted", expected=fig\.expected,\)$/\1PASS\2  # MUTATED/'
+
+# 767: background figures nobody declared go to a person
+test_mutation 767 "headcount: background figures need review" \
+    "hfvg/qc/headcount.py" \
+    "tests/test_qc_any_show.py::test_people_in_the_background_go_to_a_person" \
+    sed -i 's/^    if answer\["background"\]:$/    if False:  # MUTATED/'
+
+# 768: a shot whose cast lists more characters than its count goes to a person
+test_mutation 768 "headcount: a cast list longer than the count needs review" \
+    "hfvg/qc/headcount.py" \
+    "tests/test_qc_any_show.py::test_a_shot_listing_more_characters_than_it_shows_goes_to_a_person" \
+    sed -i 's/^    if roster\.note:$/    if False:  # MUTATED/'
+
+# 769: the main characters in frame without a cast entry are one group, counted together
+test_mutation 769 "headcount: main characters without a cast entry are counted together" \
+    "hfvg/qc/headcount.py" \
+    "tests/test_qc_any_show.py::test_a_shot_listing_more_characters_than_it_shows_goes_to_a_person" \
+    sed -i 's/^    if count is not None and count > main:$/    if False:  # MUTATED/'
+
+# 770: a judge model other than the default is never called without its own prices
+test_mutation 770 "qc judges: an unpriced judge model is never called" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_judges.py::test_a_model_without_its_own_prices_is_never_called" \
+    sed -i 's/^    if model_parts(model) != (DEFAULT_PROVIDER, DEFAULT_MODEL):$/    if False:  # MUTATED/'
+
+# 771: the judge model's provider names the budget line and the balance gate
+test_mutation 771 "qc judges: the provider comes from the model setting" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_judges.py::test_the_provider_comes_from_the_model_setting" \
+    sed -i 's/^    return provider\.strip()\.lower(), model_id\.strip()$/    return DEFAULT_PROVIDER, model_id.strip()  # MUTATED/'
+
+# 772: a check refused because the judge budget is used up says so, and is flagged for the reviewer
+test_mutation 772 "qc judges: a used-up judge budget says so" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_vision_counter.py::test_a_budget_refusal_is_needs_review_without_a_call" \
+    sed -i 's/^            raise JudgeBudgetExhausted(f"{BUDGET_USED_UP}: budget refused the judge call: the {QC_LINE} line or "$/            raise JudgeUnavailable(f"budget refused the judge call: the {QC_LINE} line or "  # MUTATED/'
+
+# 773: the G2 headcount report names the shots a person counts because the judge budget ran out
+test_mutation 773 "qc judges: the G2 report names the shots out of judge budget" \
+    "hfvg/qc/g2_headcount.py" \
+    "tests/test_qc_vision_counter.py::test_the_g2_report_names_the_shots_a_person_counts_because_the_judge_budget_ran_out" \
+    sed -i 's/^    used_up = sorted(s for s, r in shots\.items() if r\.get("judge_budget_used_up"))$/    used_up = []  # MUTATED/'
+
+# 774: assembly QC names the shots a person counts because the judge budget ran out
+test_mutation 774 "qc judges: assembly QC names the shots out of judge budget" \
+    "hfvg/activities/qc.py" \
+    "tests/test_qc_vision_counter.py::test_the_assembly_names_the_shots_a_person_counts_because_the_judge_budget_ran_out" \
+    sed -i 's/^            "judge_budget_used_up": sorted(a\["shot_id"\] for a in headcounts if a\.get("judge_budget_used_up")),$/            "judge_budget_used_up": [],  # MUTATED/'
+
+# 775: HFVG_QC_LINE_CAP_USD=auto sizes a new qc_judges line from the episode's shot plan
+test_mutation 775 "qc judges: an auto line is sized from the shot plan" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_any_show.py::test_an_auto_line_is_sized_from_the_shots_and_their_locked_characters" \
+    sed -i 's/^        return await asyncio\.to_thread(episode_line_cap_usd_micros, episode_id, model)$/        return default  # MUTATED/'
+
+# 776: one take of a shot with N locked characters can ask 8 + 4N judge calls
+test_mutation 776 "judge budget: every locked character is judged on every identity frame" \
+    "hfvg/qc/judge_budget.py" \
+    "tests/test_qc_any_show.py::test_a_take_with_n_locked_characters_can_ask_8_plus_4n_judge_calls[2]" \
+    sed -i 's/^            calls += \[("identity: judge one character", 1)\] \* shot\.locked$/            calls += [("identity: judge one character", 1)]  # MUTATED/'
+
+# 777: the line's stop holds two takes of every shot
+test_mutation 777 "judge budget: the line holds two takes of every shot" \
+    "hfvg/qc/judge_budget.py" \
+    "tests/test_qc_any_show.py::test_more_locked_characters_cost_more_and_the_line_grows_with_the_shots" \
+    sed -i 's/^    need = TAKES_PER_SHOT \* sum(take_usd_micros(s, model) for s in shots)$/    need = sum(take_usd_micros(s, model) for s in shots)  # MUTATED/'
+
+# 778: a sized line is never smaller than the fixed default cap
+test_mutation 778 "judge budget: a sized line is never below the default cap" \
+    "hfvg/qc/judge_budget.py" \
+    "tests/test_qc_any_show.py::test_more_locked_characters_cost_more_and_the_line_grows_with_the_shots" \
+    sed -i 's/^    return max(-(-need \* 100 \/\/ percent), usd_to_micros(DEFAULT_LINE_CAP_USD))$/    return -(-need * 100 \/\/ percent)  # MUTATED/'
+
+# 779: the locked characters of each shot come from its plan
+test_mutation 779 "judge budget: the locked characters come from the shot plan" \
+    "hfvg/qc/judge_budget.py" \
+    "tests/test_qc_any_show.py::test_an_auto_line_is_sized_from_the_shots_and_their_locked_characters" \
+    sed -i 's/^    return ShotJudging(locked=len(locked_entries(meta)), cast=len(cast_entries(meta)),$/    return ShotJudging(locked=0, cast=len(cast_entries(meta)),  # MUTATED/'
+
+# 780: a reviewer count for an id the shot does not declare is an unexpected figure, never dropped
+test_mutation 780 "reviewer headcount: an undeclared id is an unexpected figure" \
+    "hfvg/qc/g2_headcount.py" \
+    "tests/test_g2_headcount.py::test_a_reviewer_counts_each_cast_id_and_the_figures_nobody_declared" \
+    sed -i 's/^            unexpected += _count(row\["figures"\], fid)$/            pass  # MUTATED/'
+
+# 781: the reviewer form takes per-figure counts or the first series' counts, not both
+test_mutation 781 "reviewer headcount: the two count forms are not mixed" \
+    "api/main.py" \
+    "tests/test_g2_headcount.py::test_api_takes_a_count_per_cast_id_and_refuses_a_mixed_or_incomplete_form" \
+    sed -i 's/^            if legacy:$/            if False:  # MUTATED/'
+
+# 782: whether a counted figure looks like its description is read from the judge's answer
+test_mutation 782 "headcount judge: a figure unlike its description is read from the answer" \
+    "hfvg/qc/vision_counter.py" \
+    "tests/test_qc_any_show.py::test_a_figure_that_may_not_be_the_declared_character_goes_to_a_person" \
+    sed -i 's/^\(                               "matches": \)True if fig\.group else bool_of(row\.get("matches"), f"{fig\.id} matches")}$/\1True}  # MUTATED/'
+
+# 783: the counter is told which props and places are not figures
+test_mutation 783 "headcount judge: props and the place are named as not figures" \
+    "hfvg/qc/vision_counter.py" \
+    "tests/test_qc_any_show.py::test_a_person_with_a_lamp_is_counted_and_the_lamp_is_not_a_figure" \
+    sed -i 's/^            lines\.append("Not figures (props and the setting): " + " "\.join(props))$/            pass  # MUTATED/'
+
+# 784: every locked character of the shot gets its identity check
+test_mutation 784 "identity: every locked character of the shot is judged" \
+    "hfvg/qc/identity.py" \
+    "tests/test_qc_any_show.py::test_two_people_and_a_robot_are_judged_with_one_set_of_rules" \
+    sed -i 's/^    for crit in criteria:$/    for crit in criteria[:1]:  # MUTATED/'
+
+# 785: no judge instruction assumes a kind of character or a look
+test_mutation 785 "qc judges: no judge instruction names a species or a look" \
+    "hfvg/qc/still_review.py" \
+    "tests/test_qc_any_show.py::test_no_judge_instruction_names_a_species_or_a_look" \
+    sed -i 's/^SYSTEM = """You are the quality-control reviewer of a short video episode\. /SYSTEM = """You are the quality-control reviewer of a short animated episode (MUTATED). /'
 
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi

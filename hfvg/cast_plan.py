@@ -405,8 +405,8 @@ def cast_problems(episode_id: str, shots_raw: Any) -> list[str]:
 def preview_episode_cast(episode_id: str, shots_raw: Any, *, live: bool) -> dict[str, Any]:
     """The Cast panel / preflight view of an uploaded shots.json: what each shot's cast plans to
     (no composite files written). Raises ValueError for a shots.json that does not parse."""
-    from hfvg.shot_data import parse_shots
-    plans = parse_shots(shots_raw)
+    from hfvg.shot_data import episode_profile, parse_shots
+    plans = parse_shots(shots_raw, episode_profile(episode_id))
     for plan in plans.values():
         plan.setdefault("refs", [])
         plan.setdefault("missing_refs", [])

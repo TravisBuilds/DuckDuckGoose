@@ -412,7 +412,8 @@ async def submit_still_job_enforced(
         prompt, _cast = inject_cast_prompt(prompt, shot_meta)
         enforce_prompt_lint(episode_id, prompt, shot_meta, live=False)
         # B5: playbook moderation lint (dry never refuses; a hard violation records would_refuse)
-        lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)
+        lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False,
+                                               episode_id=episode_id)
         if lint_record["decision"] != "pass":
             activity.logger.warning(f"[DRY-RUN] moderation lint {shot_id}: {lint_record['decision']}")
         if missing_refs:
@@ -451,7 +452,7 @@ async def submit_still_job_enforced(
         f"[LIVE MODE] Submitting paid still generation for {episode_id}/{shot_id}"
     )
     
-    # GAP-40: inject the prompt kit's continuity locks (duck identity / animal scale) into the
+    # GAP-40: inject the show's continuity locks (identity, scale and the like) into the
     # submitted prompt, then the lint requires them (refuses before provider init, estimate, reserve)
     prompt, locks_added = apply_continuity_locks(episode_id, prompt, shot_meta, live=True, kind="still")
     if locks_added:
@@ -464,7 +465,8 @@ async def submit_still_job_enforced(
     # Prompt lint gate: refuses before provider init, estimate, reserve
     enforce_prompt_lint(episode_id, prompt, shot_meta, live=True)
     # B5: playbook moderation lint, same position (hard rules refuse before estimate/reserve)
-    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True)
+    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True,
+                                           episode_id=episode_id)
     
     # Refs gate: a shot never runs without its planned refs, and refs are never silently dropped
     if missing_refs:
@@ -916,12 +918,12 @@ async def submit_clip_job_enforced(
     if use_live:
         _check_higgsfield_credentials()  # G-AUD-KEY clip
 
-    # Extract animal count from shot metadata (characters set)
+    # The figure count from shot metadata (characters set)
     characters = (shot_meta or {}).get("characters", set())
     if isinstance(characters, (list, set)):
-        animal_count = len(characters)
+        figure_count = len(characters)
     else:
-        animal_count = 1
+        figure_count = 1
     
     # Explicit routing plan (fail closed in every mode)
     route = plan_route({
@@ -930,7 +932,7 @@ async def submit_clip_job_enforced(
         "tier": "draft" if tier == "draft" else "final",
         "duration": duration,
         "tags": tags or [],
-        "count": animal_count,
+        "count": figure_count,
     }, **({"resolution": seedance_resolution} if seedance_resolution and model == "seedance" else {}))
     # GAP-45: seedance_resolution = an owner-routed explicit Seedance output resolution (else tier default)
     if route.model == "seedance" and duration != int(duration):
@@ -938,7 +940,7 @@ async def submit_clip_job_enforced(
     
     # Prompt lint gate: live refuses before provider init/estimate/reserve; dry only warns
     # Clip lint runs on the FINAL submitted clip prompt (clip_prompt or reword), with the motion rules
-    # GAP-40: inject the continuity locks (duck identity + duck clip line / animal scale) first
+    # GAP-40: inject the show's continuity locks (identity, clip and scale lines) first
     prompt, locks_added = apply_continuity_locks(episode_id, prompt, shot_meta, live=use_live, kind="clip")
     if locks_added:
         activity.logger.info(f"{episode_id}/{shot_id} clip: continuity locks injected {locks_added}")
@@ -947,6 +949,7 @@ async def submit_clip_job_enforced(
     # (live: a hard violation refuses before estimate/reserve; dry: recorded, never refuses)
     lint_record = moderation_lint.evaluate(
         shot_id, prompt, shot_meta, kind="clip", model=route.model, tags=tags, live=use_live,
+        episode_id=episode_id,
     )
     
     if use_live:

@@ -148,14 +148,39 @@ export function withPictureFields(fields, answers) {
 }
 
 /**
- * The kinds of body a character can have (the API's cast_store.BODY_TYPES): the character sheet is
- * framed for it. A character without one is humanoid.
+ * The built-in kinds of body a character can have (the API's cast_store.BODY_TYPES): the character
+ * sheet is framed for it. A character without one is humanoid. A show adds its own body presets
+ * (loadBodyPresets); this list is what the panel offers when they cannot be loaded.
  */
 export const BODY_TYPES = [
   { value: 'humanoid', label: 'Two legs, like a person' },
   { value: 'four_legged', label: 'Four legs' },
   { value: 'other', label: 'Another kind of body' },
 ];
+
+/** The API route listing the body types of the episode's show (no episode: the deployment's). */
+export function bodyPresetsUrl(episodeId) {
+  const id = String(episodeId ?? '').trim();
+  return `/api/cast/body-presets${id ? `?episode_id=${encodeURIComponent(id)}` : ''}`;
+}
+
+/** The body choices in a body-presets answer ({ body_types: [{ value, label }] }); BODY_TYPES when it has none. */
+export function bodyChoices(answer) {
+  const rows = Array.isArray(answer?.body_types) ? answer.body_types : [];
+  const choices = rows
+    .filter(r => typeof r?.value === 'string' && r.value && typeof r?.label === 'string' && r.label)
+    .map(r => ({ value: r.value, label: r.label }));
+  return choices.length ? choices : BODY_TYPES;
+}
+
+/** The episode's body choices from the API (fetchJson: the studio's JSON fetch); BODY_TYPES when it fails. */
+export async function loadBodyPresets(episodeId, fetchJson) {
+  try {
+    return bodyChoices(await fetchJson(bodyPresetsUrl(episodeId)));
+  } catch {
+    return BODY_TYPES;
+  }
+}
 
 /** A new character's body type and sheet pose as form fields; none for a humanoid without its own pose. */
 export function bodyFields(fields) {
@@ -167,12 +192,16 @@ export function bodyFields(fields) {
   ];
 }
 
-/** What a character card says about how its sheet is posed; null for a humanoid without its own pose. */
-export function bodyNote(character) {
+/**
+ * What a character card says about how its sheet is posed; null for a humanoid without its own pose.
+ * choices: the episode's body choices (loadBodyPresets); a body type not among them reads as another kind.
+ */
+export function bodyNote(character, choices = BODY_TYPES) {
   const type = character?.body_type || 'humanoid';
   const pose = String(character?.sheet_pose ?? '').trim();
   if (type === 'humanoid' && !pose) return null;
-  const body = `Body: ${(BODY_TYPES.find(b => b.value === type) ?? BODY_TYPES[2]).label.toLowerCase()}.`;
+  const known = choices.find(b => b.value === type) ?? BODY_TYPES.find(b => b.value === type) ?? BODY_TYPES[2];
+  const body = `Body: ${known.label.toLowerCase()}.`;
   return pose ? `${body} Pose in the character sheet: ${pose}` : body;
 }
 

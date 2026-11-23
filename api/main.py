@@ -45,7 +45,7 @@ from typing import Annotated, Optional
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form, Cookie, Response, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from temporalio.client import Client as TemporalClient
 from temporalio.client import WorkflowUpdateFailedError
 from temporalio.exceptions import ApplicationError
@@ -1582,11 +1582,11 @@ async def upload_shots(
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     await _refuse_upload_during_run(episode_id)
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
 
     shots_bytes = await shots_file.read()
     try:
-        plans = parse_shots(json.loads(shots_bytes))
+        plans = parse_shots(json.loads(shots_bytes), episode_profile(episode_id))
     except (ValueError, ShotDataError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}")
     refs_bytes = None
@@ -1690,14 +1690,14 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     without one a dry run uses the beatmap and a live run is refused by the workflow)."""
     from hfvg.cast_plan import cast_problems
     from hfvg.preflight import preflight_plans
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
 
     path = paths.episode_dir(episode_id) / "shots.json"
     if not path.exists():
         return []
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        parse_shots(raw)
+        parse_shots(raw, episode_profile(episode_id))
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
     problems = [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
@@ -4124,8 +4124,8 @@ async def get_g2_headcount(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only; no spend
-    unless the QC judges are on, then one cached judge call per still, never repaid on reload)."""
+    """GAP-27: per shot, the declared figures counted in the kept still (read-only; no spend unless the
+    QC judges are on, then one cached judge call per still, never repaid on reload)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -4134,11 +4134,54 @@ async def get_g2_headcount(
 
 
 class HeadcountRequest(BaseModel):
+    """A reviewer's count of one still: per declared figure (the ids of ``expected.figures`` in
+    GET /g2-headcount) with the undeclared figures, the shape of the counter's answer. The older
+    figure-count form is still accepted: cast / flag_counts / other (``flag_counts`` also under the
+    key such rows always had, hfvg.compat.legacy_show.ROW_FLAG_KEY)."""
     version: int = Field(..., ge=1)
-    cast: int = Field(..., ge=0)
-    duck: int = Field(..., ge=0)
-    other: int = Field(0, ge=0, description="any other animal in frame")
+    figures: dict[str, int] | None = Field(None, description="declared figure id -> how many are in frame")
+    unexpected: int = Field(0, ge=0, description="figures nobody declared that stand out as subjects of the shot")
+    background: int = Field(0, ge=0, description="figures nobody declared, only in the background")
+    cast: int | None = Field(None, ge=0, description="older form: main characters, the show's flag figures excepted")
+    flag_counts: int | None = Field(None, ge=0, description="older form: the figures the shot's flags declare")
+    other: int | None = Field(None, ge=0, description="older form: any other figure in frame")
     note: str = Field("", max_length=1000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _older_flag_key(cls, data: object) -> object:
+        from hfvg.compat.legacy_show import ROW_FLAG_KEY
+        from hfvg.qc.g2_headcount import FLAG_COUNTS, flag_count_key
+        if isinstance(data, dict) and flag_count_key(data) == ROW_FLAG_KEY:
+            data = {**{k: v for k, v in data.items() if k != ROW_FLAG_KEY}, FLAG_COUNTS: data[ROW_FLAG_KEY]}
+        return data
+
+    def counts(self, flag_name: str = "flag_counts") -> dict:
+        """The counts to record (ValueError when the two forms are mixed or neither is complete).
+        ``flag_name``: what the episode's reviewers call the flag figures' count (in messages)."""
+        legacy = [k for k in ("cast", "flag_counts", "other") if getattr(self, k) is not None]
+        if self.figures is not None:
+            if legacy:
+                raise ValueError(f"send figures (with unexpected and background) or the cast / {flag_name} / other "
+                                 "counts, not both")
+            return {"figures": self.figures, "unexpected": self.unexpected, "background": self.background}
+        if {"unexpected", "background"} & self.model_fields_set:
+            raise ValueError("unexpected and background go with figures")
+        if self.cast is None or self.flag_counts is None:
+            raise ValueError(f"send figures (figure id -> count) or both cast and {flag_name}")
+        return {"cast": self.cast, "flag_counts": self.flag_counts, "other": self.other or 0}
+
+
+def _older_flag_name(episode_id: str) -> str:
+    """The name of the flag figures' count in the older headcount form for this episode: the key its
+    rows always had when the episode reads through the legacy adapter, else flag_counts."""
+    from hfvg.compat.legacy_show import ROW_FLAG_KEY
+    from hfvg.qc.g2_headcount import FLAG_COUNTS
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
+    try:
+        return ROW_FLAG_KEY if resolve_show_profile(episode_id).source == "legacy-adapter" else FLAG_COUNTS
+    except ShowProfileError:
+        return FLAG_COUNTS
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/headcount")
@@ -4149,23 +4192,32 @@ async def record_still_headcount(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """GAP-27: record a reviewer's animal count for one still version (used by the G2 headcount check
-    when no automatic counter is configured). The still file must be on disk. Audited."""
+    """GAP-27: record a reviewer's count of the figures in one still version (the G2 and recompose
+    headcount use it before any counter). The still file must be on disk. Audited."""
     from hfvg.qc.g2_headcount import record_headcount
     from hfvg.still_selection import outputs_dir, still_file
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
         raise HTTPException(status_code=422, detail="invalid shot id")
+    try:
+        counts = request.counts(_older_flag_name(episode_id))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if still_file(outputs_dir(episode_id, shot_id, paths.data_dir()), request.version) is None:
         raise HTTPException(status_code=409, detail=f"still v{request.version} of {shot_id} not on disk")
-    row = record_headcount(episode_id, shot_id, request.version,
-                           {"cast": request.cast, "duck": request.duck, "other": request.other},
-                           by="admin", note=request.note.strip(),
-                           episodes_dir=paths.episodes_dir())
-    await _audit(episode_id, "g2_headcount",
-                 f"{shot_id} v{request.version}: cast={request.cast} duck={request.duck} "
-                 f"other={request.other} {request.note.strip()}")
+    try:
+        row = record_headcount(episode_id, shot_id, request.version, counts, by="admin",
+                               note=request.note.strip(), episodes_dir=paths.episodes_dir())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if "figures" in row:
+        counted = " ".join([f"{fid}={n}" for fid, n in row["figures"].items()]
+                           + [f"unexpected={row['unexpected']}", f"background={row['background']}"])
+    else:
+        from hfvg.compat.legacy_show import ROW_FLAG_KEY
+        counted = f"cast={row['cast']} {ROW_FLAG_KEY}={row[ROW_FLAG_KEY]} other={row['other']}"
+    await _audit(episode_id, "g2_headcount", f"{shot_id} v{request.version}: {counted} {request.note.strip()}")
     return {"success": True, "shot_id": shot_id, "version": request.version, "headcount": row}
 
 
@@ -4363,7 +4415,7 @@ async def _retry_clip_prompt_problem(episode_id: str, shot_id: str, prompt_overr
                                      clip_route: dict | None = None) -> str | None:
     """GAP-66: the clip prompt a retry-clip will SEND (override or plan prompt, plus the prompt kit's
     continuity locks) checked for the model's length limit and the clip lint BEFORE the update is sent.
-    ep05v2 r12 V22: the plan prompt 2409 + injected duck locks = 3149 > Kling's 2500 was refused inside
+    ep05v2 r12 V22: the plan prompt 2409 + injected continuity locks = 3149 > Kling's 2500 was refused inside
     the child (no spend) after the workflow had already counted clip retry 3 of 3. None = OK. Live
     without a readable plan fails closed; dry run skips when the plan is unavailable."""
     live = os.getenv("DRY_RUN", "true").lower() != "true"
@@ -4478,7 +4530,8 @@ class RecomposeRequest(BaseModel):
     ref_keys: list[str] = Field(..., min_length=1, description="Explicit refs (refs/<key>.png); replaces the plan's")
     clip_prompt: str | None = Field(None, description="Clip prompt for the new still (default: the still prompt)")
     shot_meta: dict | None = Field(None, description="GAP-32: change the cast of the new composition "
-                                   "(only count, characters, duck); lint, headcount and clip QC follow it")
+                                   "(only count, characters and the show's shot flags); lint, headcount "
+                                   "and clip QC follow it")
     clip_route: dict | None = Field(None, description="GAP-45: owner-ordered clip route for the new composition "
                                     "(model: kling|seedance, seedance_resolution: 480p|720p|1080p)")
     plate_manifest: str | None = Field(None, description="GAP-53: a hfvg.plate_composite manifest (inside the "
@@ -4489,6 +4542,7 @@ class RecomposeRequest(BaseModel):
 def _recompose_plate(episode_id: str, shot_id: str, manifest_path: str, approved_by: str | None) -> dict:
     """GAP-53: load + verify a plate manifest for a recompose (inside the episode dir, passed, this shot,
     PNG unchanged).  Raises HTTPException before any spend."""
+    from hfvg.compat.legacy_plate import row_ratio
     from hfvg.plate_composite import PlateSpecError, load_passed_manifest, sha256_file
     ep_dir = paths.episode_dir(episode_id).resolve()
     mp = Path(manifest_path)
@@ -4505,7 +4559,7 @@ def _recompose_plate(episode_id: str, shot_id: str, manifest_path: str, approved
     return {"path": str(png), "sha256": m["sha256"], "manifest": str(mp), "manifest_sha256": sha256_file(mp),
             "approved_by": (approved_by or "").strip() or "plate_composite",
             "checks": {"passed": True, "count": m.get("count"),
-                       "layers": {r["name"]: r.get("ratio_to_duck") for r in m.get("layers", [])}}}
+                       "layers": {r["name"]: row_ratio(r) for r in m.get("layers", [])}}}
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose")
@@ -4543,6 +4597,8 @@ async def recompose_shot(
         raise HTTPException(status_code=409, detail=f"{len(refs)} refs > still model cap {cap}")
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2 as _EW
     meta_problem = _EW.recompose_meta_problem(request.shot_meta)
+    if not meta_problem and request.shot_meta and "flags" in request.shot_meta:
+        meta_problem = await asyncio.to_thread(_recompose_flags_problem, episode_id, request.shot_meta["flags"])
     if meta_problem:
         raise HTTPException(status_code=422, detail=f"invalid shot_meta: {meta_problem}")
     clip_model = "kling"
@@ -4562,7 +4618,10 @@ async def recompose_shot(
             raise HTTPException(status_code=422, detail=f"invalid clip_route: {route_problem}")
         clip_model = request.clip_route.get("model", clip_model)
     if request.shot_meta and shot_meta is not None:
-        shot_meta = {**shot_meta, **request.shot_meta}  # GAP-32: lint the NEW cast
+        merged = {**shot_meta, **request.shot_meta}  # GAP-32: lint the NEW cast
+        if "flags" in request.shot_meta:  # as the workflow merges them (recompose-meta-flags)
+            merged["flags"] = _EW.merged_recompose_flags(shot_meta, request.shot_meta)
+        shot_meta = merged
     still_prompt, sent_clip_prompt = request.prompt, request.clip_prompt
     if shot_meta is not None:
         # GAP-40: the paid submits inject the prompt kit's continuity locks; preflight (length) and lint
@@ -4613,6 +4672,15 @@ async def recompose_shot(
             "message": f"Recompose queued for {shot_id}; its still parks for /recompose/decision"}
 
 
+def _recompose_flags_problem(episode_id: str, flags: dict) -> str | None:
+    """Why a recompose's shot_meta.flags do not fit the episode's show profile (None: they do)."""
+    from hfvg.show_profile import ShowProfileError, recompose_flags_problem, resolve_show_profile
+    try:
+        return recompose_flags_problem(resolve_show_profile(episode_id), flags)
+    except ShowProfileError as e:
+        return f"the episode's show profile does not load: {e}"
+
+
 def _with_cast_clauses(still_prompt: str, shot_meta: dict | None) -> str:
     """A still prompt with the cast, props and no-text clauses the paid still submit adds from the
     plan (hfvg.activities.studio_generation), so a route's length check and lint see what is sent."""
@@ -4635,7 +4703,8 @@ def _recompose_lint_problems(episode_id: str, shot_id: str, still_prompt: str, c
     problems = [f"still: {p}" for p in lint_violations(still_prompt, shot_meta, kit)]
     problems += [f"clip: {p}" for p in clip_lint_violations(clip_prompt, shot_meta, kit)]
     for kind, prompt, model in (("still", still_prompt, None), ("clip", clip_prompt, clip_model)):
-        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=model, refs=refs, live=False)
+        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=model, refs=refs,
+                                       live=False, episode_id=episode_id)
         problems += [f"{kind} moderation: {v}" for v in rec.get("hard_violations", [])]
     return problems
 
@@ -4904,7 +4973,7 @@ async def get_recompose_headcount(
         FAIL as _FAIL, NEEDS_REVIEW as _NR, ReviewerHeadcountCounter, _still_for, check_still_headcount,
         load_headcounts,
     )
-    from hfvg.qc.animal_count import get_animal_counter
+    from hfvg.qc.headcount import get_cast_counter
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -4915,7 +4984,7 @@ async def get_recompose_headcount(
     except Exception as e:
         raise HTTPException(status_code=409, detail=f"recompose headcount unavailable (fails closed): {e}")
     reviewer = ReviewerHeadcountCounter(
-        load_headcounts(episode_id, paths.episodes_dir()), get_animal_counter())
+        load_headcounts(episode_id, paths.episodes_dir()), get_cast_counter())
     out_root = paths.outputs_dir(episode_id)
     shots = {}
     for sid in sorted(plans):
@@ -5013,7 +5082,7 @@ def _adopt_reuse_fields(episode_id: str, shot_id: str, entry: dict) -> dict:
     The slot must be a reuse slot of the episode's edit plan, the entry id must match, and the entry's
     trim must keep the reuse slot's screen length (the edit timing does not move). Pure (reads files)."""
     from hfvg.edit_plan import load_edit_plan
-    from hfvg.shot_data import parse_shots
+    from hfvg.shot_data import episode_profile, parse_shots
     plan = load_edit_plan(episode_id) or {}
     reuse = (plan.get("reuse") or {}).get(shot_id)
     if not reuse:
@@ -5022,7 +5091,7 @@ def _adopt_reuse_fields(episode_id: str, shot_id: str, entry: dict) -> dict:
         raise HTTPException(status_code=422, detail=f"shot.id {entry.get('id')!r} does not match {shot_id}")
     clean = {k: v for k, v in entry.items() if k not in ("reuse", "pre_approved_still")}
     try:
-        parsed = parse_shots({"shots": [clean]})[shot_id]
+        parsed = parse_shots({"shots": [clean]}, episode_profile(episode_id))[shot_id]
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"invalid shot entry: {e}")
     trim = parsed.get("trim") or {}
@@ -5219,6 +5288,37 @@ async def get_gates(
 
 # Mark get_gates to allow members
 get_gates.allow_members = True
+
+
+@app.get("/api/episodes/{episode_id}/show-profile")
+async def get_show_profile(
+    episode_id: str,
+    authorization: str | None = Header(None),
+    studio_admin_token: str | None = Cookie(None),
+):
+    """The show profile the episode's runs read (docs/SHOW-PROFILE.md): where it comes from (``source``
+    episode | env | legacy-adapter | default), its digest, body presets, shot flags and identity
+    profile ids, the gate policy it gets; no rule text. A show.json (or the gate policy it names) that
+    does not load is reported with its problems."""
+    await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
+    validate_episode_id(episode_id)
+    from hfvg.show_profile import (
+        ShowProfileError,
+        declared_source,
+        gate_policy_summary,
+        resolve_show_profile,
+    )
+
+    try:
+        profile = await asyncio.to_thread(resolve_show_profile, episode_id)
+    except ShowProfileError as e:
+        return {"episode_id": episode_id, "ok": False, "source": declared_source(episode_id), "errors": e.problems}
+    gate_policy = await asyncio.to_thread(gate_policy_summary, profile)
+    return {"episode_id": episode_id, "ok": not gate_policy["errors"], **profile.summary(),
+            "gate_policy": gate_policy, "errors": gate_policy["errors"]}
+
+
+get_show_profile.allow_members = True
 
 @app.get("/api/episodes/{episode_id}/audit")
 async def get_audit_trail(
@@ -6211,8 +6311,8 @@ async def lint_episode(
     else:
         try:
             import json
-            from hfvg.shot_data import parse_shots
-            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")))
+            from hfvg.shot_data import episode_profile, parse_shots
+            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")), episode_profile(episode_id))
         except Exception as e:
             issues.append(f"shots.json parse error: {str(e)}")
     
@@ -6278,7 +6378,7 @@ async def set_ref_versions(
     Set or bump reference image versions in refs.json.
     
     Args:
-        versions: Map of ref keys to version numbers (e.g., {"r_duck_sheet": 2})
+        versions: Map of ref keys to version numbers (e.g., {"r_host_sheet": 2})
     
     Requires: Cookie auth
     """
@@ -7150,6 +7250,7 @@ async def preflight_episode(
     validate_episode_id(episode_id)
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
 
     if request and request.shots:
         shots = request.shots
@@ -7158,8 +7259,12 @@ async def preflight_episode(
         if not shots_path.exists():
             raise HTTPException(status_code=404, detail=f"No shots.json uploaded for {episode_id}")
         try:
+            profile = resolve_show_profile(episode_id)
+        except ShowProfileError:
+            profile = None  # reported under show_profile
+        try:
             raw = json.loads(shots_path.read_text(encoding="utf-8"))
-            parse_shots(raw)  # same validation as upload
+            parse_shots(raw, profile)  # same validation as upload
         except (ValueError, ShotDataError) as e:
             if not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token):
                 raise HTTPException(status_code=400, detail="Invalid shots.json")
@@ -7176,17 +7281,38 @@ async def preflight_episode(
     cast_hidden = has_cast and not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
     cast_errors = (await asyncio.to_thread(cast_problems, episode_id, {"shots": shots})
                    if has_cast and not cast_hidden else [])
+    show_profile = await asyncio.to_thread(_preflight_show_profile, episode_id)
+    if show_profile["errors"] and not await cast_routes.may_see_episode_cast(episode_id, authorization,
+                                                                             studio_admin_token):
+        show_profile["errors"] = ["show.json does not validate"]
     return {
         "episode_id": episode_id,
         "shots": report["shots"],
         "violations": report["violations"],
         "errors": errors,
         "warnings": warnings,
-        "has_errors": bool(errors) or bool(cast_errors),
+        "has_errors": bool(errors) or bool(cast_errors) or bool(show_profile["errors"]),
         "cast_errors": cast_errors,
         "cast_hidden": cast_hidden,
         "cost_estimate": offline_cost_estimate(shots),
+        "show_profile": show_profile,
     }
+
+
+def _preflight_show_profile(episode_id: str) -> dict:
+    """The preflight's show profile line: its source and digest, or why the show.json does not load."""
+    from hfvg.show_profile import (
+        ShowProfileError,
+        declared_source,
+        gate_policy_problems,
+        resolve_show_profile,
+    )
+
+    try:
+        profile = resolve_show_profile(episode_id)
+    except ShowProfileError as e:
+        return {"source": declared_source(episode_id), "digest": None, "errors": e.problems}
+    return {"source": profile.source, "digest": profile.digest, "errors": gate_policy_problems(profile)}
 
 
 # Mark preflight_episode to allow members

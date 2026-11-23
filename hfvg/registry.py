@@ -1,6 +1,17 @@
-"""Asset registry for series identity locks and episode references."""
+"""Asset registry for series identity locks and episode references.
+
+A series' CHARACTER-LOCK.md declares each locked character in a section of its own::
+
+    ## Character: <id>
+    - Name: <display name>
+    - Locked: <YYYY-MM-DD> (<note>)
+    - Ref <type>: `<path under the series folder>`
+    - Notes: <what the lock fixes>
+    - Rejected: <version>, <version>
+"""
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -61,21 +72,7 @@ class AssetRegistry:
         if not lock_file.exists():
             return
             
-        content = lock_file.read_text(encoding="utf-8")
-        
-        # Simple parser for the duck character lock
-        # In production, this would be more robust
-        if "Demo Duck" in content:
-            self.characters["duck"] = CharacterLock(
-                name="Demo Duck (Mallard)",
-                locked_date="2026-09-20",
-                canonical_refs={
-                    "apparel": "refs/apparel/host-hat-v3/",
-                    "anatomy": "refs/ember-duck-ref/",
-                },
-                anatomy_notes="Short broad bill, pear-shaped body, nub wings",
-                rejected_versions=["v1-body-too-long", "v2-bill-too-long"]
-            )
+        self.characters.update(parse_character_locks(lock_file.read_text(encoding="utf-8")))
     
     def _load_apparel_locks(self):
         """Load apparel reference stacks from refs/apparel/."""
@@ -190,7 +187,7 @@ class AssetRegistry:
         return refs
     
     def get_world_refs(self) -> list[str]:
-        """Get world/resort environment references (ONE-RESORT RULE)."""
+        """Get the world/environment references (a show's world_refs playbook rule checks them)."""
         return list(self.env_plates.values())
     
     def get_active_locks(self) -> list[AssetLock]:
@@ -206,6 +203,40 @@ class AssetRegistry:
         elif "-v1" in name:
             return "v1"
         return "unknown"
+
+
+_CHARACTER_HEADING = re.compile(r"^#{2,3}[ \t]*Character:[ \t]*", re.MULTILINE | re.IGNORECASE)
+_FIELD = re.compile(r"^\s*[-*]\s*([A-Za-z ]+?):\s*(.*)$")
+
+
+def parse_character_locks(content: str) -> dict[str, CharacterLock]:
+    """The character locks of a CHARACTER-LOCK.md (module docstring), by character id."""
+    out: dict[str, CharacterLock] = {}
+    for section in _CHARACTER_HEADING.split(content)[1:]:
+        head, _, body = section.partition("\n")
+        char_id = head.strip()
+        fields: dict[str, str] = {}
+        refs: dict[str, str] = {}
+        for line in body.splitlines():
+            if line.startswith("#"):
+                break
+            m = _FIELD.match(line)
+            if not m:
+                continue
+            key, value = m.group(1).strip().lower(), m.group(2).strip()
+            if key.startswith("ref "):
+                refs[key[4:].strip()] = value.strip("`")
+            else:
+                fields[key] = value
+        date = re.match(r"\d{4}-\d{2}-\d{2}", fields.get("locked", ""))
+        out[char_id] = CharacterLock(
+            name=fields.get("name", char_id),
+            locked_date=date.group(0) if date else "",
+            canonical_refs=refs,
+            anatomy_notes=fields.get("notes", ""),
+            rejected_versions=[v.strip() for v in fields.get("rejected", "").split(",") if v.strip()],
+        )
+    return out
 
 
 def load_registry(series_path: str | None = None) -> AssetRegistry:

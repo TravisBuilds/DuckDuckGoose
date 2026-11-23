@@ -289,7 +289,7 @@ async def test_multi_animal_routing_enforcement(tmp_path):
         "duration": 5.0,
         "count": 2,
     }
-    with pytest.raises(RoutingError, match="Multi-animal.*Kling"):
+    with pytest.raises(RoutingError, match="Multi-character.*Kling"):
         plan_route(bad_shot)
     
     # S-marked multi-animal shot (from parser): should fail routing to Seedance
@@ -304,7 +304,7 @@ async def test_multi_animal_routing_enforcement(tmp_path):
     # Convert S to seedance for routing
     test_shot = s_multi_shot.copy()
     test_shot["model"] = "seedance" if test_shot["model"] == "S" else test_shot["model"]
-    with pytest.raises(RoutingError, match="Multi-animal.*Kling"):
+    with pytest.raises(RoutingError, match="Multi-character.*Kling"):
         plan_route(test_shot)
 
 

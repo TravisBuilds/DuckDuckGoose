@@ -63,7 +63,8 @@ def lint_problems(episode_id: str, shot_id: str, prompt: str, shot_meta: dict | 
     except PromptLintError as e:
         problems = [f"lint: {e}"]
     if shot_meta is not None:
-        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=None, refs=refs, live=False)
+        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=None, refs=refs,
+                                       live=False, episode_id=episode_id)
         problems += [f"moderation: {v}" for v in rec.get("hard_violations", [])]
     return problems if live else []
 

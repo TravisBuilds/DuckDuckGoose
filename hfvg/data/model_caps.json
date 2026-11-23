@@ -973,7 +973,7 @@
    },
    "moderation": [
     {
-     "quirk": "Seedance 2.x does not accept reference images or videos containing REAL human faces (portrait assets need the verified asset library). Cartoon/animal content is unaffected.",
+     "quirk": "Seedance 2.x does not accept reference images or videos containing REAL human faces (portrait assets need the verified asset library). Cartoon and other non-human content is unaffected.",
      "sources": [
       "bp_video_task",
       "bp_las"

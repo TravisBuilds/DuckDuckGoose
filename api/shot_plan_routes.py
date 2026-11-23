@@ -299,9 +299,9 @@ def _apply(raw: dict, items: dict, request: ShotPlanRequest) -> list[dict]:
 def _validate(episode_id: str, raw: dict) -> None:
     """What the run's parse would refuse: an invalid shots.json, or cast, props and places it cannot plan."""
     from hfvg.cast_plan import cast_problems
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
     try:
-        parse_shots(raw)
+        parse_shots(raw, episode_profile(episode_id))
     except (ValueError, ShotDataError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid shot plan: {e}") from None
     problems = cast_problems(episode_id, raw)

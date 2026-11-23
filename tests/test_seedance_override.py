@@ -28,7 +28,7 @@ def test_override_unset_keeps_both_refusals(monkeypatch):
     assert seedance_override_ids() == frozenset()
     multi = capture(RoutingError, plan_route, _shot("TA_S", count=3, tags=()))
     wet = capture(RoutingError, plan_route, _shot("TA_S", count=1, tags=("wet",)))
-    assert multi is not None and "Multi-animal" in str(multi)
+    assert multi is not None and "Multi-character" in str(multi)
     assert wet is not None and "wet" in str(wet)
 
 

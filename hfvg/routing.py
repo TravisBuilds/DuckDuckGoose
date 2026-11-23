@@ -30,7 +30,7 @@ SEEDANCE_OVERRIDE_ENV = "HFVG_SEEDANCE_OVERRIDE_SHOTS"
 def seedance_override_ids() -> frozenset[str]:
     """Owner-approved per-shot Seedance exceptions (env HFVG_SEEDANCE_OVERRIDE_SHOTS, comma list).
 
-    A listed shot id may route to Seedance even when it is multi-animal or tagged ``wet``
+    A listed shot id may route to Seedance even when it has more than one character or is tagged ``wet``
     (owner-approved head-to-head test). Unset/empty = the rules apply unchanged.
     The duration and whole-seconds checks are never overridden.
     """
@@ -62,11 +62,12 @@ class ShotRoute:
 def plan_route(shot: dict, resolution: str | None = None) -> ShotRoute:
     """Validate and plan the route for one shot dict.
 
-    Required keys: ``model``, ``tier``, ``duration`` (seconds), ``count`` (number of animals).
+    Required keys: ``model``, ``tier``, ``duration`` (seconds), ``count`` (number of characters in frame).
     Optional: ``tags`` (list[str]), ``shot_id`` (str; only used for the env-gated Seedance
     override, see :func:`seedance_override_ids`).
     
-    Multi-animal rule: shots with count > 1 MUST use Kling with first-frame only (never Seedance reference mode).
+    Multi-character rule: shots with count > 1 MUST use Kling with first-frame only (never Seedance reference
+    mode): a provider-capability rule, the same for every show.
     """
     model = shot.get("model")
     tier = shot.get("tier")
@@ -90,10 +91,10 @@ def plan_route(shot: dict, resolution: str | None = None) -> ShotRoute:
     shot_id = shot.get("shot_id")
     override = model == "seedance" and isinstance(shot_id, str) and shot_id in seedance_override_ids()
 
-    # Multi-animal enforcement: force Kling for count > 1 (unless the shot is owner-overridden)
+    # Multi-character enforcement: force Kling for count > 1 (unless the shot is owner-overridden)
     if count > 1 and model == "seedance" and not override:
         raise RoutingError(
-            f"Multi-animal shots (count={count}) must use Kling first-frame, not Seedance reference mode"
+            f"Multi-character shots (count={count}) must use Kling first-frame, not Seedance reference mode"
         )
 
     if model == "seedance":

@@ -23,7 +23,7 @@ from hfvg.activities import audio as act
 from hfvg.activities import media
 from hfvg.activities.media import assemble_mute_edit
 from hfvg.activities.qc import check_assembly_qc, check_motion_qc
-from hfvg.qc.animal_count import FakeAnimalCounter, set_animal_counter
+from hfvg.compat.species_counter import FakeAnimalCounter, set_animal_counter
 from tests.lint_helpers import lint_meta
 from tests.slow_bin import TimedHeartbeats, alive, describe, kill_group, slow, wait_dead  # noqa: F401
 from tests.test_audio_delivery import episode

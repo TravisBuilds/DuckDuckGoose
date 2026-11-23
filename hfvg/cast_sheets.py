@@ -11,8 +11,10 @@ Flow for one character version (an outfit):
 4. The creator approves: the version is locked (hfvg.cast_store.approve_version) and its sheet
    images become the identity refs of every still with the character (hfvg.cast_plan).
 
-Each picture is framed for the character's body type (SHEET_BODIES: humanoid, four-legged or other)
-or the sheet pose the character has of its own.
+Each picture is framed for the character's body type (the built-in SHEET_BODIES ``humanoid``,
+``four_legged`` and ``other``, or a body preset of the episode's show: show profile ``body_presets``) or
+the sheet pose the character has of its own. A sheet drawn from the description opens with the show's
+sheet lead (``sheet.lead``).
 
 Before the lock any stage may be rejected and generated again; each try is a new attempt (new job
 ids), so a paid job id is never reused. Only the server's still model (MODEL_PATH_STILL, the model
@@ -29,6 +31,7 @@ from typing import Any
 from hfvg import cast_store
 from hfvg.cast_prompt import NO_TEXT_CLAUSE
 from hfvg.content_policy import hard_stop_terms, precheck_banned_words
+from hfvg.show_profile import NEUTRAL_SHEET_LEAD, ShowProfileError, resolve_show_profile
 
 STAGES = ("options", "turnaround")
 TEXT_OPTIONS = (2, 4)
@@ -150,27 +153,34 @@ def _join(*parts: str) -> str:
     return " ".join(p.strip() for p in parts if p and p.strip())
 
 
-def sheet_body(character: dict) -> dict:
+def sheet_body(character: dict, profile: Any = None) -> dict:
     """How the character's sheet pictures are framed: ``{"type", "frame", "aspects", "head",
-    "placeholder"}`` of its body type (humanoid when it has none or an unknown one), the frame being
-    its own sheet pose when it has one."""
+    "placeholder"}`` of its body type: the show's body preset of that id when ``profile`` (a
+    hfvg.show_profile.ShowProfile) has one, else the built-in one (humanoid when it has none or an
+    unknown one); the frame is its own sheet pose when it has one."""
     kind = character.get("body_type")
-    if kind not in SHEET_BODIES:
-        kind = cast_store.DEFAULT_BODY_TYPE
-    body = {"type": kind, **SHEET_BODIES[kind]}
+    preset = profile.body_preset(kind) if profile is not None else None
+    if preset is not None:
+        body = {"type": kind, "frame": preset.frame, "aspects": preset.aspects, "head": preset.head,
+                "placeholder": preset.placeholder}
+    else:
+        if kind not in SHEET_BODIES:
+            kind = cast_store.DEFAULT_BODY_TYPE
+        body = {"type": kind, **SHEET_BODIES[kind]}
     pose = " ".join(str(character.get("sheet_pose") or "").split()).rstrip(". ")
     if pose:
         body["frame"] = f"Full body, the whole figure centered in frame. Pose: {pose}."
     return body
 
 
-def master_prompt(clause: str, mode: str, style: str, outfit: str = "", frame: str = BODY_FRAME) -> str:
-    if mode == "text":
-        lead = "Character design reference of an original character."
-    elif mode == "upload":
+def master_prompt(clause: str, mode: str, style: str, outfit: str = "", frame: str = BODY_FRAME,
+                  lead: str = NEUTRAL_SHEET_LEAD) -> str:
+    """A master option's prompt. ``lead`` (the show's ``sheet.lead``) opens a sheet drawn from the
+    description; a sheet drawn from a reference image opens with what the image is."""
+    if mode == "upload":
         lead = ("Character design reference. The reference image shows this character: keep their identity "
                 "exactly (same face, proportions, colors and design details).")
-    else:
+    elif mode != "text":
         lead = ("Character design reference. The reference image is this character's approved master: keep "
                 "the same face, body proportions, colors and identity"
                 + (f", and change only the outfit to: {outfit.rstrip('.')}." if outfit else "."))
@@ -227,10 +237,13 @@ def job_id_for(character_id: str, version: int, view: str, attempt: int) -> str:
 
 
 def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, count: int | None = None,
-              source: str = "auto", views: list[str] | None = None, live: bool) -> dict[str, Any]:
+              source: str = "auto", views: list[str] | None = None, live: bool,
+              profile: Any = None) -> dict[str, Any]:
     """The jobs of one sheet request: ``{"stage", "mode", "model_path", "jobs": [...]}``. Each job:
     job_id, character_id, version, stage, view (the image role it makes), attempt, prompt, refs
-    (local files), ref_shas, aspect_ratio, resolution, quality, model_path, episode_id."""
+    (local files), ref_shas, aspect_ratio, resolution, quality, model_path, episode_id, body_type, and
+    for a show's body preset the dry-run picture size (``placeholder``). ``profile``: the show profile
+    whose sheet lead and body presets apply (None: the episode's, hfvg.show_profile)."""
     if stage not in STAGES:
         raise SheetPlanError(f"stage must be one of {list(STAGES)}")
     version = next((v for v in character["versions"] if v["version"] == version_no), None)
@@ -238,10 +251,16 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
         raise cast_store.CastNotFound(f"Version {version_no} of {character['name']} not found")
     if version.get("locked"):
         raise cast_store.CastConflict(f"Version {version_no} is locked; create a new version for a new outfit")
+    if profile is None:
+        try:
+            profile = resolve_show_profile(episode_id)
+        except ShowProfileError as e:
+            raise SheetPlanError(f"The episode's show profile does not load: {e}") from None
     model_path = sheet_model_path()
     clause = version["clause"]
     style = episode_style(episode_id)
-    body = sheet_body(character)
+    body = sheet_body(character, profile)
+    preset = profile.body_preset(body["type"])
     if stage == "options":
         mode, ref_rows = options_mode(version, source)
         if mode == "outfit":
@@ -250,7 +269,8 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
         n = count if count is not None else (DEFAULT_TEXT_OPTIONS if mode == "text" else DEFAULT_REF_OPTIONS)
         if isinstance(n, bool) or not isinstance(n, int) or not lo <= n <= hi:
             raise SheetPlanError(f"Ask for {lo} to {hi} master options")
-        prompt = master_prompt(clause, mode, style, version.get("outfit") or "", frame=body["frame"])
+        prompt = master_prompt(clause, mode, style, version.get("outfit") or "", frame=body["frame"],
+                               lead=profile.sheet_lead)
         specs = [(cast_store.OPTION_ROLE, prompt)] * n
         aspects = [body["aspects"]] * n
     else:
@@ -287,17 +307,23 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
             "attempt": attempt, "prompt": prompt, "refs": refs, "ref_shas": [r["sha256"] for r in ref_rows],
             "aspect_ratio": aspect_ratio, "resolution": SHEET_RESOLUTION, "quality": SHEET_QUALITY,
             "model_path": model_path, "episode_id": episode_id, "body_type": body["type"],
+            **({"placeholder": list(preset.placeholder)} if preset is not None else {}),
         })
     return {"stage": stage, "mode": mode, "model_path": model_path, "jobs": jobs}
 
 
 def placeholder_image(job: dict) -> bytes:
     """A deterministic dry-run stand-in for a sheet image (a plain figure shape of the job's body
-    type, no text; a job planned before body types is humanoid)."""
+    type, no text; a job planned before body types is humanoid). A job for a show's body preset
+    carries the preset's picture size (``placeholder``)."""
     from PIL import Image, ImageDraw
     digest = hashlib.sha256(job["job_id"].encode()).digest()
     kind = job.get("body_type") if job.get("body_type") in SHEET_BODIES else cast_store.DEFAULT_BODY_TYPE
-    size = PLACEHOLDER_HEAD if job["view"] == "head_sheet" else SHEET_BODIES[kind]["placeholder"]
+    size = SHEET_BODIES[kind]["placeholder"]
+    if isinstance(job.get("placeholder"), list) and len(job["placeholder"]) == 2:
+        size = tuple(job["placeholder"])
+    if job["view"] == "head_sheet":
+        size = PLACEHOLDER_HEAD
     bg = (200 + digest[0] % 40, 200 + digest[1] % 40, 200 + digest[2] % 40)
     fg = (60 + digest[3] % 120, 60 + digest[4] % 120, 60 + digest[5] % 120)
     img = Image.new("RGB", size, bg)

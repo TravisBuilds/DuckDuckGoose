@@ -1,22 +1,27 @@
-"""G2.03 / G3.03 / G4.02: Duck identity gate (PIPELINE-LESSONS §13).
+"""Compatibility shim: the duck host identity gate of the first series (G2.03 / G3.03 / G4.02),
+formerly hfvg.qc.duck_identity.
 
-Extract frames → detect duck → crop/composite → vision judge → auto-fail logic.
-
-The duck host is one configured character of the generic identity gate (hfvg.qc.identity):
-``DUCK_HOST_PROFILE`` holds its rules (signs bill, head, neck ring, body, too small; apparel tuque
-and vest; the tuft in "B" shots; the 0.12 height floor for the host). Locked cast characters use the
-same gate with criteria from their lock. ``create_gate()`` defaults to the always-pass fakes, which
-are for dry run only: a live check with them escalates.
+The pipeline judges identity only for locked cast-library characters (hfvg.qc.identity), so a duck
+host that is a locked cast character is checked like any other. This module keeps the first
+series' gate for the code and tests written against it: ``DUCK_HOST_PROFILE`` holds its rules as
+profile data, the legacy adapter's ``identity_profiles.duck_host`` (examples/first-series/show.json:
+signs bill, head, neck ring, body, too small; apparel tuque and vest; the tuft in "B" shots; the
+0.12 height floor for the host), ``DuckIdentityGate`` runs them through the generic gate
+with a folder of reference images, and its detector and judge interfaces take no criteria.
+``create_gate()`` defaults to the always-pass fakes, which are for dry run only: a live check with
+them escalates. Nothing in the pipeline calls this gate.
 
 Privacy: Reference images and media-ids.json must NOT be in the public repo.
 Refs are resolved from SERIES_PATH at runtime, never committed.
 """
 
+import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-from hfvg.qc.identity import IdentityCriteria, IdentityGate, IdentityProfile
+from hfvg.compat.legacy_show import host_identity_profile
+from hfvg.qc.identity import IdentityCriteria, IdentityGate
 
 REF_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp")
 
@@ -68,11 +73,11 @@ class VisionJudge(ABC):
 
 
 class FakeDuckDetector(DuckDetector):
-    """Fake detector for dry-run testing."""
+    """Fake detector for dry-run testing (also usable as the generic gate's detector)."""
 
     dry_run_only = True  # a live gate with it escalates
 
-    async def detect(self, image_path: str | Path) -> dict[str, Any]:
+    async def detect(self, image_path: str | Path, criteria: IdentityCriteria | None = None) -> dict[str, Any]:
         """Always returns a fake detection."""
         return {
             "found": True,
@@ -83,12 +88,12 @@ class FakeDuckDetector(DuckDetector):
 
 
 class FakeVisionJudge(VisionJudge):
-    """Fake judge for dry-run testing. Always returns PASS."""
+    """Fake judge for dry-run testing. Always returns PASS (also usable as the generic gate's judge)."""
 
     dry_run_only = True  # a live gate with it escalates
 
-    async def judge_identity(self, composite_path: str | Path,
-                           shot_context: dict[str, Any]) -> dict[str, Any]:
+    async def judge_identity(self, composite_path: str | Path, shot_context: dict[str, Any],
+                             criteria: IdentityCriteria | None = None) -> dict[str, Any]:
         """Fake judge always passes."""
         return {
             "signs": {
@@ -109,30 +114,25 @@ class FakeVisionJudge(VisionJudge):
         }
 
 
-DUCK_HOST_PROFILE = IdentityProfile(
-    name="duck_host",
-    label="Duck",
-    signs={
-        "bill": "bill shape and length",
-        "head": "head shape",
-        "neck_ring": "a white neck ring (0 absent, 2 clearly present)",
-        "body": "body shape",
-        "too_small": "is the duck big enough to read (0 readable, 1 borderline, 2 unreadable)",
-    },
-    apparel={"tuque": "cream tuque with a pom", "vest": "vest fading from cream to olive"},
-    hint_signs=("neck_ring",),
-    state_key="duck_state",
-    state_features={"B": ("tuft", "3-lobe tuft at a quarter of the head height")},
-    min_height_fraction=0.12,
-    presence=("duck_role", "host"),
-    presence_note="host role",
-)
+DUCK_HOST_PROFILE = host_identity_profile()  # identity_profiles.duck_host of examples/first-series/show.json
 
 
 def _ref_images(refs_path: Path | None) -> tuple[tuple[str, str], ...]:
     if refs_path is None or not refs_path.is_dir():
         return ()
     return tuple(("ref", str(p)) for p in sorted(refs_path.iterdir()) if p.suffix.lower() in REF_SUFFIXES)
+
+
+def _takes(fn: Any, n: int) -> bool:
+    """True when ``fn`` takes ``n`` positional arguments (this gate's detector and judge interfaces
+    take one fewer than the generic gate's: no criteria)."""
+    try:
+        params = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    if any(p.kind == p.VAR_POSITIONAL for p in params):
+        return True
+    return len([p for p in params if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]) >= n
 
 
 class DuckIdentityGate(IdentityGate):
@@ -165,6 +165,16 @@ class DuckIdentityGate(IdentityGate):
                              sheet=_ref_images(self.refs_path), profile=DUCK_HOST_PROFILE,
                              episode_id=episode_id),
         )
+
+    async def _detect(self, image_path: str | Path) -> dict[str, Any]:
+        if _takes(self.detector.detect, 2):
+            return await self.detector.detect(image_path, self.criteria)
+        return await self.detector.detect(image_path)
+
+    async def _judge(self, composite_path: Path, shot_context: dict[str, Any]) -> dict[str, Any]:
+        if _takes(self.judge.judge_identity, 3):
+            return await self.judge.judge_identity(composite_path, shot_context, self.criteria)
+        return await self.judge.judge_identity(composite_path, shot_context)
 
 
 def create_gate(detector: DuckDetector | None = None,
