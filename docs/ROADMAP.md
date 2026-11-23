@@ -13,7 +13,7 @@ Planned features and improvements for the Hands-Free Video Generator.
 - Web UI (basic)
 - CLI tools
 - Audio stage: voiceover, SFX, music, mix and delivery QC before the final cut (PRs #17 and #18)
-- Red-green mutation testing (756 tests: 751 mutations + 5 probes, as of 2026-11-20)
+- Red-green mutation testing (783 tests: 778 mutations + 5 probes, as of 2026-11-23)
 - Automated QC judges, off by default behind `HFVG_QC_JUDGES_ENABLED` ([QC-JUDGES.md](QC-JUDGES.md))
 
 **🚧 In Progress:**
@@ -32,19 +32,27 @@ describe (new runs already send the still rubric, which nothing reads without a 
 - (a) the still reviewer judges each live still against its prompt and references, which
   `ShotWorkflow` now sends in the rubric behind `workflow.patched("qc-still-rubric")`; a FAIL
   fails the shot for the bounded `retry_shot`, anything unsure goes to a person;
-- (b) one headcount call per still or clip counts cast, ducks and animals, knowing the shot's
-  declared cast; a counter error is NEEDS_REVIEW at G2, at recompose and in assembly QC;
+- (b) one headcount call per still or clip counts every cast entry the shot declares by its id, the
+  other main characters as one group, and the figures nobody declared (unexpected, background); a
+  counter error is NEEDS_REVIEW at G2, at recompose and in assembly QC;
 - (c) one call per clip answers every `qc_fail_if` condition from six frames across the clip;
 - (d) `hfvg/qc/identity.py` is one identity gate for every locked character, with criteria from the
-  lock and real crops; the duck host is one configured profile of it;
-- cost: OpenAI through `OPENAI_API_KEY` (model id from `HFVG_QC_JUDGE_MODEL`), a `qc_judges` budget
-  line ($0.50, configurable) with reserve and commit around every call inside the $48 stop, the
-  balance gate for `openai` (unknown balance: the line bounds the spend), verdicts cached by content;
-- tests: fake-judge unit tests for every path, a workflow test, a replay test of a run parked at
-  review before the patch, red-green M-730 to M-758.
+  lock, real crops and the same signs for any kind of character; the first series' duck host gate
+  is a compatibility shim over it;
+- every judge works for any show (people, creatures, robots, puppets, props that act): no judge
+  instruction, parser, cache key or budget assumes a kind of character or a look;
+- cost: the provider and model from `HFVG_QC_JUDGE_MODEL` (OpenAI through `OPENAI_API_KEY`, the only
+  judge client), a `qc_judges` budget line ($0.50, or `auto`: sized from the episode's shots and
+  their locked characters) with reserve and commit around every call inside the $48 stop, the
+  balance gate for the model's provider (unknown balance: the line bounds the spend), verdicts cached
+  by content, and a "judge budget used up" reason when the line runs out;
+- tests: fake-judge unit tests for every path, shows without a duck (`tests/test_qc_any_show.py`), a
+  workflow test, a replay test of a run parked at review before the patch, red-green M-730 to M-758
+  and M-764 to M-785.
 
 Left: turning the flag on after a look at the first live verdicts, with the chosen model's prices in
-`HFVG_QC_JUDGE_USD_PER_MTOK_IN` / `_OUT`.
+`HFVG_QC_JUDGE_USD_PER_MTOK_IN` / `_OUT` (required for any model but the default); deciding whether
+`auto` becomes the default line size; per-character identity rules in the cast library.
 
 **Why:** Live QC has no vision judge yet. Motion QC and the stillgate measure each clip, but the
 still reviewer, the counter and the clip checker below are interfaces with fail-closed wiring and
@@ -87,37 +95,38 @@ model.
     re-rolled with `retry_shot`; a replay test for a run parked at review before the patch;
   - red-green mutations for the new branches (a low-confidence verdict must never pass).
 
-##### b. Character and animal counter
+##### b. Headcount counter
 
-- **Now:** no real counter ships and production registers none (`get_animal_counter()` is
-  `None`), so counts come from a reviewer or the check is NEEDS_REVIEW. Two places use it:
-  - `hfvg/qc/g2_headcount.py` counts `cast`, `duck` and every `animal` in each kept still against
-    `shot_meta`. A FAIL blocks G2 approval (409) unless it is overridden with a reason. Without a
-    counter it uses a reviewer's recorded headcount, else NEEDS_REVIEW. It runs on
-    `GET /api/episodes/{id}/g2-headcount`, on every G2 approval and on the recompose headcount
-    route.
+- **Now:** with the flag off no counter is registered (`get_cast_counter()` is `None`), so counts
+  come from a reviewer or the check is NEEDS_REVIEW. Two places use it:
+  - `hfvg/qc/g2_headcount.py` counts, in each kept still, every figure the shot declares (each
+    cast entry by its id, the other main characters as one group) and the figures nobody declared.
+    A FAIL blocks G2 approval (409) unless it is overridden with a reason. Without a counter it uses
+    a reviewer's recorded headcount (per figure id, or the first series' cast / duck / other form),
+    else NEEDS_REVIEW. It runs on `GET /api/episodes/{id}/g2-headcount`, on every G2 approval and
+    on the recompose headcount route.
   - `hfvg/qc/continuity.py` lists it as the `headcount` continuity check (hard by default), which
     `check_assembly_qc` runs on each shot of the mute edit. Without a counter it is NEEDS_REVIEW
     and holds `G_FINAL_CUT` until a passing rebuild or `accept_assembly_qc`.
-- **Interface:** `AnimalCounter.count_animals(media_path, expected_type)` in
-  `hfvg/qc/animal_count.py` returns `count`, `confidence`, `type_match` and `method`;
-  `FakeAnimalCounter` is for tests only; `set_animal_counter()` registers one per process.
+- **Interface:** `CastCounter.count_cast(media_path, shot_context)` in `hfvg/qc/headcount.py`
+  answers, per figure id, a count and whether it matches the declared character, plus unexpected
+  and background figures, a confidence and a method; `FakeCastCounter` is for tests only;
+  `set_cast_counter()` registers one per process. The first series' species interface
+  (`AnimalCounter.count_animals` in `hfvg/qc/animal_count.py`) is an adapter of it.
 - **Done when:**
-  - a real counter implements `AnimalCounter` and is registered at startup in both processes that
+  - a real counter implements `CastCounter` and is registered at startup in both processes that
     read it: the worker (assembly QC) and the API (G2 and recompose headcount);
-  - a count below `DEFAULT_CONFIDENCE_THRESHOLD` (0.7) stays NEEDS_REVIEW, as all three callers
-    already do, and a counter error is NEEDS_REVIEW for that shot. Today an exception from
-    `count_animals` is not caught: the headcount routes would return 500, and assembly QC retries
-    the whole activity up to 3 times, repeating every paid count;
+  - a count below `DEFAULT_CONFIDENCE_THRESHOLD` (0.7) stays NEEDS_REVIEW and a counter error is
+    NEEDS_REVIEW for that shot, never a 500 or a retry of the whole assembly QC activity that would
+    repeat every paid count;
   - a reviewer's recorded headcount still wins over the model (`ReviewerHeadcountCounter`);
-  - the counter knows who `cast` is. `count_animals` gets no shot context today, so the interface
-    needs the shot's declared characters and references, and should count characters that are not
-    animals.
+  - the counter knows who is declared: it gets the shot's cast entries, their descriptions and
+    references, and counts any kind of character.
 - **Tests:**
   - registration: a counter when one is configured, NEEDS_REVIEW (as now) when not;
   - low confidence and counter errors are NEEDS_REVIEW in the G2 headcount, the recompose
     headcount and assembly QC; a reviewer count beats the model;
-  - pin what `type_match: false` means (FAIL in assembly QC, NEEDS_REVIEW at G2 today);
+  - a figure that may not be the declared character is NEEDS_REVIEW at G2 and in assembly QC;
   - keep `tests/test_g2_headcount.py` and `tests/test_picture_assembly_round3.py::TestAnimalChecks`
     (M-273) passing; add mutations for low confidence or an error turning into PASS.
 
@@ -147,14 +156,13 @@ model.
 
 ##### d. Identity gate for any locked character
 
-- **Now:** `hfvg/qc/duck_identity.py` is written for one series' duck host: fixed signs (bill,
-  head, neck ring, body, too small), fixed apparel (tuque, vest), a tuft rule for "B" shots and a
-  0.12 height floor. The composite is a placeholder (it copies the frame), `check_clip` assumes a
-  duration instead of probing it, and frames come from a blocking `subprocess.run`. `create_gate()`
-  defaults to fakes that always pass. No production code calls it; only
-  `tests/test_qc_duck_identity.py` and `tests/test_e2e_dryrun.py` do.
-- **Interface:** `DuckIdentityGate` with `DuckDetector.detect` and `VisionJudge.judge_identity`;
-  `create_gate()`.
+- **Now:** with the flag off no identity judge is registered, so no still or clip review checks a
+  character's identity. `hfvg/qc/duck_identity.py`, the first series' duck host gate, is a
+  compatibility shim over the generic gate (its rules as one profile); no production code calls
+  it, only `tests/test_qc_duck_identity.py` and `tests/test_e2e_dryrun.py` do.
+- **Interface:** `IdentityGate` with `CharacterDetector.detect(image, criteria)` and
+  `IdentityJudge.judge_identity(composite, shot_context, criteria)` in `hfvg/qc/identity.py`;
+  `DuckIdentityGate` and `create_gate()` in the shim.
 - **Done when:** one gate works for any locked character, with its criteria taken from the
   character's lock in the cast library (locked description, master, turnaround and head sheet,
   `lock_hash`) instead of code. A live gate without a judge escalates (the always-pass fakes are
@@ -198,9 +206,10 @@ ledger. The judges must be:
 
 **Files:**
 - `hfvg/activities/qc.py`, `hfvg/workflows/shot.py` (still and clip review)
-- `hfvg/qc/animal_count.py`, `hfvg/qc/g2_headcount.py`, `hfvg/qc/continuity.py` (counter)
+- `hfvg/qc/headcount.py`, `hfvg/qc/vision_counter.py`, `hfvg/qc/g2_headcount.py`,
+  `hfvg/qc/continuity.py` (counter; `hfvg/qc/animal_count.py` keeps the first series' adapters)
 - `hfvg/qc/clip_constraints.py` (clip conditions)
-- `hfvg/qc/duck_identity.py` (identity gate)
+- `hfvg/qc/identity.py` (identity gate; `hfvg/qc/duck_identity.py` is a compatibility shim)
 - `hfvg/worker.py`, `api/main.py` (registering the judges at startup)
 - `hfvg/budget.py`, `hfvg/balance_monitor.py` (spend)
 

@@ -222,6 +222,23 @@ writes these keys for you.
   reports these in `cast_errors`.
 - `ref_keys` and refs.json keep working as before, alone or together with `cast`.
 
+### What the QC judges check against (`cast`, `count`, `props`)
+
+With the automated QC judges on ([QC-JUDGES.md](QC-JUDGES.md)), the shot plan is what they check:
+
+- Each `cast` entry is one figure, counted by its id and expected once, whatever the character is (a
+  person, a creature, a robot, a puppet, a prop that acts). Each locked entry also gets the identity
+  check.
+- `count` is the number of main characters in frame. When it is larger than the cast list, the main
+  characters without a cast entry are counted together as one group. A cast list longer than `count`
+  goes to a person.
+- The shot's `props` and `place` are not figures. A prop that acts as a character (a talking kettle)
+  belongs in the cast library, so it is counted and checked like any other character.
+- Any other figure standing out in the shot fails the headcount; figures only in the background go
+  to a person.
+- The first series' `duck_present` still declares its host outside `count`: the host is counted as
+  one more figure, or as one of the cast entries when the cast list is longer than `count`.
+
 ### Words in the picture (`allow_text`, `prompt_kit.json` `text_policy`)
 
 - A shot with a `cast` gets "No text, no captions, no speech bubbles, no lettering." in every still
