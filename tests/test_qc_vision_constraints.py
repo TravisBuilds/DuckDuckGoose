@@ -117,6 +117,7 @@ async def test_a_budget_refusal_is_needs_review_without_a_call(db, tmp_path):
     checker, client = _checker(_answer())
     res = await _evaluate(checker, _clip(tmp_path))
     assert res["status"] == cc.NEEDS_REVIEW and "budget refused the judge call" in res["reason"], res
+    assert "judge budget used up, a person checks this: " in res["reason"], res
     assert client.calls == [] and qc_line(db, EP)["reserved"] == 0
 
 
