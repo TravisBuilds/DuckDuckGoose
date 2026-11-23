@@ -85,9 +85,10 @@ def line_cap_usd_micros(shots: list[ShotJudging], model: str | None = None) -> i
 def episode_shots(episode_id: str) -> list[ShotJudging]:
     """The episode's shots as planned from its shots.json and cast library (no composite written)."""
     from hfvg.cast_plan import plan_cast
-    from hfvg.shot_data import parse_shots, shots_json_path
+    from hfvg.shot_data import episode_profile, parse_shots, shots_json_path
 
-    plans = parse_shots(json.loads(Path(shots_json_path(episode_id)).read_text(encoding="utf-8")))
+    plans = parse_shots(json.loads(Path(shots_json_path(episode_id)).read_text(encoding="utf-8")),
+                        episode_profile(episode_id))
     for plan in plans.values():
         plan.setdefault("refs", [])
         plan.setdefault("missing_refs", [])

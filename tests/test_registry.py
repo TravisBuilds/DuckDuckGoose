@@ -8,6 +8,8 @@ import pytest
 
 from hfvg.registry import AssetRegistry, CharacterLock
 
+LOCK_FIXTURE = Path(__file__).parent / "fixtures" / "registry" / "CHARACTER-LOCK.md"
+
 
 @pytest.fixture
 def temp_series_dir():
@@ -16,20 +18,7 @@ def temp_series_dir():
         series_path = Path(tmpdir)
         
         # Create CHARACTER-LOCK.md
-        lock_content = """# Demo Duck Peak Glow Up
-
-**Locked 2026-09-20 (v3 short-bill remake)**
-
-## Identity
-- Compact pear-shaped body
-- SHORT broad classic orange duck bill
-- Iridescent bottle-green mallard head
-
-## Canonical refs
-- Apparel ABs: `refs/apparel/host-hat-v3/AB02.png`
-- Anatomy source: Ember Ep2
-"""
-        (series_path / "CHARACTER-LOCK.md").write_text(lock_content)
+        (series_path / "CHARACTER-LOCK.md").write_text(LOCK_FIXTURE.read_text(encoding="utf-8"))
         
         # Create apparel refs structure
         apparel_dir = series_path / "refs" / "apparel"

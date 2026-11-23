@@ -1050,9 +1050,9 @@ test_mutation 64 "M-P3a Lint checks the count clause" \
 
 # 65. M-P3b Lint forbids 'nothing else moves'
 test_mutation 65 "M-P3b Lint forbids 'nothing else moves'" \
-    "hfvg/prompt_lint.py" \
+    "hfvg/compat/legacy_show.py" \
     "tests/test_prompt_lint.py::test_nothing_else_moves_is_forbidden" \
-    sed -i 's/^DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")/DEFAULT_FORBIDDEN_PHRASES = ("realistic wild",)  # MUTATED/'
+    sed -i 's/^FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")$/FORBIDDEN_PHRASES = ("realistic wild",)  # MUTATED/'
 
 # 66. M-P3c Lint is enforced in live mode  
 test_mutation 66 "M-P3c Lint is enforced in live mode" \
@@ -1064,13 +1064,13 @@ test_mutation 66 "M-P3c Lint is enforced in live mode" \
 test_mutation 67 "M-P3d Lint applies the banned-decor list" \
     "hfvg/prompt_lint.py" \
     "tests/test_prompt_lint.py::test_banned_decor_words_forbidden" \
-    sed -i 's/^    for word in kit.banned_decor:/    for word in ():  # MUTATED/'
+    sed -i 's/^    for word in rules.banned_words:$/    for word in ():  # MUTATED/'
 
 # 68. M-P3e Lint requires the antler clause when an antler character is present
 test_mutation 68 "M-P3e Lint requires the antler clause when an antler character is present" \
-    "hfvg/prompt_lint.py" \
+    "hfvg/compat/legacy_show.py" \
     "tests/test_prompt_lint.py::test_antler_clause_required_when_antler_character_present" \
-    sed -i 's/^    if present \& {c.lower() for c in kit.antler_characters}:/    if False:  # MUTATED/'
+    sed -i 's/^    if antler_codes:$/    if False:  # MUTATED/'
 
 # 69. M-R4a shot_meta.count comes from shots.json
 test_mutation 69 "M-R4a shot_meta.count comes from shots.json" \
@@ -1279,7 +1279,7 @@ test_mutation 101 "M-R4G GET episode unknown workflow is 404" \
 test_mutation 102 "M-R4H upload-shots validates shots.json" \
     "api/main.py" \
     "tests/test_round4_shot_data.py::test_upload_shots_route_validates_and_stores" \
-    sed -i 's/^        plans = parse_shots(json.loads(shots_bytes))$/        plans = {"x": 1}  # MUTATED/'
+    sed -i 's/^        plans = parse_shots(json.loads(shots_bytes), episode_profile(episode_id))$/        plans = {"x": 1}  # MUTATED/'
 
 # 103. M-R4I Lint kit loads the lint section of a full prompt_kit.json
 test_mutation 103 "M-R4I Lint kit loads the lint section of a full prompt_kit.json" \
@@ -1289,9 +1289,9 @@ test_mutation 103 "M-R4I Lint kit loads the lint section of a full prompt_kit.js
 
 # 104. M-R4J Lint requires antler/duck clauses on shot_meta flags
 test_mutation 104 "M-R4J Lint requires antler/duck clauses on shot_meta flags" \
-    "hfvg/prompt_lint.py" \
+    "hfvg/compat/legacy_show.py" \
     "tests/test_round4_shot_data.py::test_lint_flags_require_antler_and_duck_clauses_without_character_codes" \
-    sed -i 's/^        if meta.get(flag) and not (present \& {c.lower() for c in codes}):$/        if False:  # MUTATED/'
+    sed -i 's/^    when = {"all": \[{"flag": flag}, {"not": {"characters_any": list(codes)}}\]} if codes else {"flag": flag}$/    when = {"not": {"always": True}}  # MUTATED/'
 
 # 105. M-R5a Still provider cap follows its model (not a global 3)
 test_mutation 105 "M-R5a Still provider cap follows its model" \
@@ -2861,7 +2861,7 @@ test_mutation 368 "G1 real per-call estimates (pre-approved still not priced)" \
 test_mutation 369 "moderation lint before live still submit" \
     "hfvg/activities/studio_generation.py" \
     "tests/test_round7_moderation_lint.py::test_live_hard_violation_refuses_before_estimate_reserve_and_submit" \
-    sed -i 's/^    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True)$/    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False)  # MUTATED/'
+    sed -i 's/^    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=True,$/    lint_record = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind="still", refs=refs, live=False,  # MUTATED/'
 
 # 370: B6: every declared code default is allowed by model_caps
 test_mutation 370 "ref resolution default validated against model_caps" \
@@ -3252,7 +3252,7 @@ test_mutation 433 "unknown lint value fails closed" \
 test_mutation 434 "default lint profile has no bare-waves rule" \
     "hfvg/prompt_lint.py" \
     "tests/test_default_prompt_lint.py::test_default_profile_requires_no_series_clauses" \
-    sed -i 's/^\(    if \)kit\.forbid_bare_waves and \(.*\)$/\1\2  # MUTATED/'
+    sed -i 's/^\(    if \)rules\.forbid_bare_waves and \(.*\)$/\1\2  # MUTATED/'
 
 # 435: the live episode preflight refuses a lint kit the paid submits cannot load
 test_mutation 435 "live preflight refuses a broken prompt lint kit" \

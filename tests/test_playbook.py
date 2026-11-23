@@ -2,6 +2,7 @@
 
 import pytest
 
+from hfvg.compat.legacy_playbook import LegacyPlaybookValidator
 from hfvg.playbook import PlaybookValidator, PlaybookViolation
 
 
@@ -50,7 +51,7 @@ def test_draft_first_enforcement():
 
 def test_same_resort_rule():
     """Test ONE-RESORT RULE enforcement."""
-    validator = PlaybookValidator()
+    validator = LegacyPlaybookValidator()
     world_refs = ["img_resort_lobby", "img_resort_pool"]
     
     # Room plate without world refs should fail
@@ -90,7 +91,7 @@ def test_same_resort_rule():
 
 def test_duck_role_validation():
     """Test duck-as-host rule."""
-    validator = PlaybookValidator()
+    validator = LegacyPlaybookValidator()
     
     # Guest-only shot without "no duck" negative should fail
     shot = {
@@ -129,7 +130,7 @@ def test_duck_role_validation():
 
 def test_animal_poses_validation():
     """Test NO UPRIGHT/CARRYING rule."""
-    validator = PlaybookValidator()
+    validator = LegacyPlaybookValidator()
     
     # Upright guest animal should fail
     shot = {
@@ -180,7 +181,7 @@ def test_moderation_routing():
 
 def test_validate_shot_all_rules():
     """Test running all validations on a shot."""
-    validator = PlaybookValidator()
+    validator = LegacyPlaybookValidator()
     world_refs = ["img_resort_lobby"]
     
     # Shot with multiple violations

@@ -348,6 +348,17 @@ class ShowProfile:
         names = {f.meta for f in self.shot_flags}
         return names | {f.declared_meta for f in self.shot_flags if f.declared_meta}
 
+    def flag_declared_false(self, shot_meta: dict | None, name: str) -> bool:
+        """The shot declares flag ``name`` and it is false (a flag it does not declare makes no claim):
+        declared through the flag's ``declared_meta`` marker when it has one, else by its presence."""
+        meta = shot_meta if isinstance(shot_meta, dict) else {}
+        spec = self.shot_flag(name)
+        if spec is not None and spec.declared_meta:
+            declared = bool(flag_value(meta, spec.declared_meta)[1])
+        else:
+            declared = isinstance(meta.get("flags"), dict) and name in meta["flags"]
+        return declared and flag_value(meta, name)[1] is False
+
     def body_preset(self, preset_id: str | None) -> BodyPreset | None:
         return self.body_presets.get(preset_id) if preset_id else None
 
@@ -627,7 +638,8 @@ def _required_clauses(raw: Any, problems: list[str]) -> tuple[RequiredClause, ..
             problems.append(f"{where}: id {cid!r} is used twice")
         seen.add(cid)
         text = _str(d.get("text"), f"{where}.text", problems)
-        missing = _str(d.get("missing_text_message"), f"{where}.missing_text_message", problems)
+        missing = _template(d.get("missing_text_message"), f"{where}.missing_text_message", problems, "",
+                            ("id", "text"))
         if not text.strip() and not missing:
             problems.append(f"{where}: text must not be empty")
         out.append(RequiredClause(
@@ -939,6 +951,21 @@ def profile_digest(profile: ShowProfile) -> str:
 
 
 # ------------------------------------------------------------------------------------------ loading
+
+
+def recompose_flags_problem(profile: ShowProfile, flags: dict) -> str | None:
+    """Why a recompose's ``shot_meta.flags`` patch does not fit the show (None: it does): every name
+    one of its shot flags (or a flag's declared marker), every value of that flag's type."""
+    names = profile.flag_names()
+    undeclared = sorted(str(k) for k in flags if k not in names)
+    if undeclared:
+        return f"shot_meta.flags {undeclared} are not shot flags of this show; it declares {sorted(names)}"
+    for name, value in flags.items():
+        spec = profile.shot_flag(name)
+        kind = spec.type if spec is not None else "bool"
+        if type(value) is not FLAG_TYPES[kind]:
+            return f"shot_meta.flags.{name} must be a {kind}, got {value!r}"
+    return None
 
 
 def load_show_profile(path: str | os.PathLike, source: str = "episode") -> ShowProfile:

@@ -263,10 +263,10 @@ def _universe_logline(library: tuple[str, str]) -> str:
 def episode_context(episode_id: str) -> dict:
     """What every shot's brief reads once: the shot list, the beatmap, the style line, the logline."""
     from hfvg.cast_sheets import episode_style
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
     raw = _read_shots(episode_id)
     try:
-        plans = parse_shots(raw)
+        plans = parse_shots(raw, episode_profile(episode_id))
     except (ShotDataError, ValueError) as e:
         raise CastError(f"The shot list cannot be read: {e}") from None
     library = cast_store.library_for_episode(episode_id)
@@ -910,9 +910,9 @@ def picked_here(spec: Any) -> bool:
 
 
 def _write_shots(episode_id: str, raw: dict) -> None:
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
     try:
-        parse_shots(raw)
+        parse_shots(raw, episode_profile(episode_id))
     except (ShotDataError, ValueError) as e:
         raise CastError(f"The shot list would not be valid: {e}") from None
     path = shots_path(episode_id)

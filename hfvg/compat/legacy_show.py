@@ -28,6 +28,7 @@ from hfvg.show_profile import (
     RequiredClause,
     ShotFlag,
     ShowProfile,
+    evaluate_when,
     validate_when,
 )
 
@@ -48,6 +49,13 @@ HOST_FIGURE = FlagFigure(flag=HOST_FLAG, figure_id="_duck_host", name="duck",
 CHARACTER_CODES = {"D": CharacterCode(slug="duck", role="host", key="duck_role", absent="absent")}
 ROLE_PREFIX = "{role} duck"
 SCALE_REFERENCE = "duck"
+
+
+def prompt_lead(shot: dict[str, Any]) -> str:
+    """The lead hfvg.episode_parser.build_prompt_from_shot gives a shot parsed with the legacy codes
+    (its ``duck_role``): "host duck" / "absent duck"; "" without the key."""
+    return " ".join(ROLE_PREFIX.format(role=shot[c.key], slug=c.slug)
+                    for c in CHARACTER_CODES.values() if c.key and shot.get(c.key))
 
 # ------------------------------------------------------------------------------------------ lint
 
@@ -76,6 +84,12 @@ MESSAGES = {
                       "{sentence!r}"),
     "banned_decor": "banned decor word: {word!r}",
 }
+
+
+def is_bath_shot(shot_meta: dict[str, Any] | None) -> bool:
+    """Animals soaking in the water (the kits' bath rule): explicit shot_meta.bath, else wet + water +
+    count > 0."""
+    return evaluate_when(BATH_WHEN, shot_meta)
 
 
 def _lint_error(message: str):

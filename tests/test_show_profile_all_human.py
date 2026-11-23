@@ -16,6 +16,7 @@ import pytest
 
 from hfvg import show_profile
 from hfvg.show_profile import ShowProfileError, evaluate_when, resolve_show_profile
+from tests.test_retry_prompt_preflight import client  # noqa: F401  (fixture)
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "shows" / "human_satire"
 EP = "ep71satire"
@@ -148,6 +149,159 @@ def test_predicates(pred, meta, tags, expected):
     assert evaluate_when(pred, meta, tags) is expected
 
 
+# ------------------------------------------------------------------------------- shot plan, lint, playbook
+
+
+def _plans(folder: Path) -> dict:
+    from hfvg.shot_data import parse_shots
+    return parse_shots(json.loads((folder / "shots.json").read_text(encoding="utf-8")), resolve_show_profile(EP))
+
+
+def test_the_shot_plan_carries_the_shows_flags_and_roles(satire):
+    from hfvg.shot_data import ShotDataError, parse_shots
+
+    plans = _plans(satire)
+    metas = {sid: plan["shot_meta"] for sid, plan in plans.items()}
+    assert metas["S02"]["flags"] == {"on_camera": True} and metas["S02"]["roles"] == ["candidate"]
+    assert metas["S03"]["flags"] == {"on_camera": False} and metas["S03"]["roles"] == ["moderator"]
+    assert metas["S01"]["flags"] == {} and "roles" not in metas["S01"]
+    for meta in metas.values():
+        assert not {"duck", "duck_declared", "antler"} & set(meta), meta
+    assert not species_words(json.dumps(plans))
+
+    raw = json.loads((satire / "shots.json").read_text(encoding="utf-8"))
+    raw["shots"][1]["on_camera"] = "yes"
+    with pytest.raises(ShotDataError, match=r"shot S02: on_camera must be a bool, got 'yes'"):
+        parse_shots(raw, resolve_show_profile(EP))
+
+
+def test_the_beatmap_reads_the_shows_character_codes(satire):
+    from hfvg.episode_parser import build_prompt_from_shot, parse_beatmap
+
+    shots = {s["shot_id"]: s for s in parse_beatmap(satire / "BEATMAP.md", resolve_show_profile(EP))}
+    assert shots["S02"]["roles"] == ["candidate"] and shots["S03"]["roles"] == ["moderator"]
+    assert "roles" not in shots["S01"] and not [s for s in shots.values() if "duck_role" in s]
+    assert build_prompt_from_shot(shots["S02"]).startswith("candidate with C1, C2 MEDIUM.")
+    assert build_prompt_from_shot(shots["S01"]).startswith("WIDE, locked.")
+    assert not species_words(json.dumps([build_prompt_from_shot(s) for s in shots.values()]))
+    # the same rows read without a profile keep the legacy layout
+    assert {s["duck_role"] for s in parse_beatmap(satire / "BEATMAP.md")} == {"absent"}
+
+
+def test_the_lint_runs_the_shows_rules_with_its_own_messages(satire):
+    from hfvg.prompt_lint import (
+        apply_continuity_locks,
+        clip_lint_violations,
+        lint_summary,
+        lint_violations,
+        load_lint_kit,
+    )
+
+    plans = _plans(satire)
+    summary = lint_summary(EP, plans)
+    assert summary["ok"] and summary["profile"] == "show" and summary["problem_count"] == 0, summary
+    kit = load_lint_kit(EP)
+    meta = plans["S02"]["shot_meta"]
+    found = lint_violations("Medium shot: two candidates. A lookalike candidate waves with a logo.", meta, kit)
+    assert found == [
+        "missing count clause: 'Figures in frame: 2.'",
+        "missing real-time / no-slow-motion clause",
+        "invented people only: 'lookalike' next to 'candidate': 'A lookalike candidate waves with a logo'",
+        "banned word: 'logo'",
+        "missing the AI satire disclosure: 'AI satire disclosure: invented people only'",
+        "missing continuity lock 'eyeline' (still)",
+    ]
+    clip = clip_lint_violations("Two candidates nod, nothing else moves.", meta, kit)
+    assert "forbidden phrase: 'nothing else moves'" in clip, clip
+    # the lock follows the shot flag; nobody in frame needs no disclosure
+    sent, added = apply_continuity_locks(EP, plans["S02"]["prompt"], meta, True, kind="still")
+    assert added == ["eyeline"] and sent.endswith("Whoever is on camera looks straight into the lens.")
+    assert apply_continuity_locks(EP, plans["S03"]["prompt"], plans["S03"]["shot_meta"], True, kind="still")[1] == []
+    assert lint_violations(plans["S01"]["prompt"], plans["S01"]["shot_meta"], kit) == []
+    assert not species_words(json.dumps(found + clip))
+
+
+def test_the_moderation_lint_runs_only_the_shows_rules(satire, monkeypatch):
+    from hfvg import moderation_lint
+    from hfvg.activities.g1_plan import _moderation_preview
+
+    plans = _plans(satire)
+    for sid, plan in plans.items():
+        for kind, prompt in (("still", plan["prompt"]), ("clip", plan["clip_prompt"])):
+            rec = moderation_lint.evaluate(sid, prompt, plan["shot_meta"], kind=kind, model="kling", live=True,
+                                           episode_id=EP)
+            assert list(rec["rules"]) == ["moderation_routing"] and rec["decision"] == "pass", rec
+            assert not species_words(json.dumps(rec))
+    # one deployment setting serves every show: the first series' rule names are accepted, not applied
+    monkeypatch.setenv(moderation_lint.HARD_RULES_ENV, "duck_role, moderation_routing")
+    assert moderation_lint.hard_rules(resolve_show_profile(EP)) == frozenset({"moderation_routing"})
+    preview = _moderation_preview([{"shot_id": sid, **plan} for sid, plan in plans.items()], set(), EP)
+    assert {sid: (list(row["still"]["rules"]), row["clip"]["decision"]) for sid, row in preview.items()} == {
+        sid: (["moderation_routing"], "pass") for sid in plans}
+
+
+def test_a_recompose_may_set_only_the_shows_declared_flags(satire):
+    from hfvg.show_profile import recompose_flags_problem
+    from hfvg.workflows.episode_v2 import EpisodeWorkflowV2 as W
+
+    profile = resolve_show_profile(EP)
+    assert W.recompose_meta_problem({"count": 1, "flags": {"on_camera": False}}) is None
+    assert recompose_flags_problem(profile, {"on_camera": False}) is None
+    assert recompose_flags_problem(profile, {"host_present": False}) == (
+        "shot_meta.flags ['host_present'] are not shot flags of this show; it declares ['on_camera']")
+    assert recompose_flags_problem(profile, {"on_camera": "yes"}) == "shot_meta.flags.on_camera must be a bool, got 'yes'"
+    for bad in (["on_camera"], {"on_camera": None}, {"on_camera": 0.5}, {"": True}):
+        assert W.recompose_meta_problem({"flags": bad}) == (
+            "shot_meta.flags must be an object of boolean, string or integer values"), bad
+
+
+class _Handle:
+    def __init__(self, meta):
+        self.meta, self.updates = meta, []
+
+    async def query(self, name, *args, **kw):
+        assert name == "retry_prompt_plan"
+        return {"found": True, "still_prompt": "x", "clip_prompt": "x", "clip_model": "kling", "shot_meta": self.meta}
+
+    async def execute_update(self, name, *a, **kw):
+        self.updates.append((name, kw.get("args", a)))
+        return {"status": "queued", "workflow_id": f"{EP}-shot-S02-recompose1", "recompose": 1, "version": 2}
+
+
+class _Client:
+    def __init__(self, handle):
+        self.handle = handle
+
+    def get_workflow_handle(self, wid):
+        return self.handle
+
+
+def test_the_recompose_route_checks_flags_against_the_show(satire, client, monkeypatch):  # noqa: F811
+    api_main, c = client
+    (satire / "refs").mkdir()
+    (satire / "refs" / "podiums.png").write_bytes(b"\x89PNG")
+    handle = _Handle(_plans(satire)["S02"]["shot_meta"])
+    monkeypatch.setattr(api_main, "temporal_client", _Client(handle))
+    prompt = ("Medium shot: the two candidates turn their backs to the camera. Figures in frame: 2. "
+              "AI satire disclosure: invented people only. Real-time pace.")
+    body = {"reason": "Studio: backs to camera", "prompt": prompt, "ref_keys": ["podiums"],
+            "shot_meta": {"flags": {"host_present": False}}}
+    r = c.post(f"/api/episodes/{EP}/shots/S02/recompose", json=body)
+    assert r.status_code == 422 and handle.updates == [], r.text
+    assert r.json()["detail"] == ("invalid shot_meta: shot_meta.flags ['host_present'] are not shot flags of "
+                                  "this show; it declares ['on_camera']")
+    # declared: the patched flag is what the lint reads (no eyeline lock off camera) and what is sent
+    body["shot_meta"] = {"flags": {"on_camera": False}}
+    r = c.post(f"/api/episodes/{EP}/shots/S02/recompose", json=body)
+    assert r.status_code == 200, r.text
+    (name, args), = handle.updates
+    assert name == "recompose_shot" and args[2] == prompt and args[6] == {"flags": {"on_camera": False}}
+    # on camera, the show's continuity lock is injected into what is sent
+    body["shot_meta"] = {"flags": {"on_camera": True}}
+    assert c.post(f"/api/episodes/{EP}/shots/S02/recompose", json=body).status_code == 200
+    assert handle.updates[-1][1][2] == f"{prompt} Whoever is on camera looks straight into the lens."
+
+
 # ------------------------------------------------------------------------------------------ API and preflight
 
 
@@ -178,16 +332,16 @@ async def studio(satire, monkeypatch):
 def _member(api_main):
     from fastapi.testclient import TestClient
 
-    client = TestClient(api_main.app, raise_server_exceptions=False)
-    login = client.post("/api/login", json={"email": MEMBER[0], "password": MEMBER[1]})
+    member = TestClient(api_main.app, raise_server_exceptions=False)
+    login = member.post("/api/login", json={"email": MEMBER[0], "password": MEMBER[1]})
     assert login.status_code == 200, login.text
-    client.cookies.set("studio_admin_token", login.cookies.get("studio_admin_token"))
-    return client
+    member.cookies.set("studio_admin_token", login.cookies.get("studio_admin_token"))
+    return member
 
 
 async def test_members_read_the_show_profile_an_episode_gets(studio, satire):
-    client = _member(studio)
-    body = client.get(f"/api/episodes/{EP}/show-profile").json()
+    member = _member(studio)
+    body = member.get(f"/api/episodes/{EP}/show-profile").json()
     profile = resolve_show_profile(EP)
     assert body == {"episode_id": EP, "ok": True, **profile.summary(), "errors": []}
     assert body["source"] == "episode" and body["digest"] == profile.digest
@@ -196,15 +350,15 @@ async def test_members_read_the_show_profile_an_episode_gets(studio, satire):
     assert "lint" not in body and "AI satire disclosure" not in json.dumps(body)
 
     (satire / "show.json").write_text(json.dumps({"schema": "hfvg.show/1", "policy": {"real_people": "allow"}}))
-    broken = client.get(f"/api/episodes/{EP}/show-profile").json()
+    broken = member.get(f"/api/episodes/{EP}/show-profile").json()
     assert broken["ok"] is False and broken["source"] == "episode"
     assert broken["errors"] == ["policy.real_people must be one of ['refuse'] (docs/CONTENT-POLICY.md)"]
 
     (satire / "show.json").unlink()
-    assert client.get(f"/api/episodes/{EP}/show-profile").json()["source"] == "legacy-adapter"
+    assert member.get(f"/api/episodes/{EP}/show-profile").json()["source"] == "legacy-adapter"
     for name in ("prompt_kit.json", "shots.json"):
         (satire / name).unlink()
-    assert client.get(f"/api/episodes/{EP}/show-profile").json()["source"] == "default"
+    assert member.get(f"/api/episodes/{EP}/show-profile").json()["source"] == "default"
 
 
 async def test_the_preflight_reports_the_profile_and_refuses_a_bad_one(studio, satire):
@@ -212,12 +366,12 @@ async def test_the_preflight_reports_the_profile_and_refuses_a_bad_one(studio, s
 
     from hfvg.activities.preflight import PreflightError, preflight_validate_episode_activity
 
-    client = _member(studio)
-    report = client.post(f"/api/episodes/{EP}/preflight").json()
+    member = _member(studio)
+    report = member.post(f"/api/episodes/{EP}/preflight").json()
     assert report["show_profile"] == {"source": "episode", "digest": resolve_show_profile(EP).digest, "errors": []}
 
     (satire / "show.json").write_text(json.dumps({"schema": "hfvg.show/1", "cast": {"Bad Id": {}}}))
-    report = client.post(f"/api/episodes/{EP}/preflight").json()
+    report = member.post(f"/api/episodes/{EP}/preflight").json()
     assert report["has_errors"] is True and report["show_profile"]["errors"]
     with pytest.raises(PreflightError) as err:
         await ActivityEnvironment().run(preflight_validate_episode_activity, EP)

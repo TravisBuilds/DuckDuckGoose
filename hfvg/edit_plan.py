@@ -67,8 +67,31 @@ def parse_dissolves(raw: dict[str, Any] | None) -> list[tuple[str, str, float]]:
     return out
 
 
-def edit_plan_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
-    """Build the edit plan (order, reuse clips, dissolves) from a full Studio shots.json."""
+def reuse_shot_meta(shot: dict[str, Any], profile=None) -> dict[str, Any]:
+    """The QC meta of a reused clip: its count, the flags that declare extra figures to the headcount
+    (show profile ``flag_figures``; None: the legacy adapter's), its characters and constraints."""
+    from hfvg.compat import legacy_show
+    profile = profile if profile is not None else legacy_show.series_profile()
+    top: dict[str, Any] = {}
+    flags: dict[str, Any] = {}
+    for figure in profile.flag_figures:
+        spec = profile.shot_flag(figure.flag)
+        if spec is None:
+            continue
+        if spec.top_level:
+            top[spec.meta] = bool(shot.get(spec.key))
+        elif spec.key in shot or spec.default is not None:
+            flags[spec.meta] = shot.get(spec.key, spec.default)
+    meta = {"count": shot.get("count"), **top, "characters": shot.get("characters"),
+            "qc_fail_if": shot.get("qc_fail_if") or []}
+    if flags:
+        meta["flags"] = flags
+    return meta
+
+
+def edit_plan_from_spec(spec: dict[str, Any], profile=None) -> dict[str, Any]:
+    """Build the edit plan (order, reuse clips, dissolves) from a full Studio shots.json. ``profile``:
+    the show profile whose flags the reused clips' QC meta carries (None: the legacy adapter's)."""
     shots = spec.get("shots") or []
     order = [s["id"] for s in shots]
     if len(set(order)) != len(order):
@@ -86,8 +109,7 @@ def edit_plan_from_spec(spec: dict[str, Any]) -> dict[str, Any]:
         reuse[s["id"]] = {
             "clip": clip, "sha256": sha, "trim_in": trim_in, "trim_out": round(trim_in + screen, 6),
             "screen_s": screen,
-            "shot_meta": {"count": s.get("count"), "duck": bool(s.get("duck_present")),
-                          "characters": s.get("characters"), "qc_fail_if": s.get("qc_fail_if") or []},
+            "shot_meta": reuse_shot_meta(s, profile),
             "source": r.get("source") or r.get("status"),
         }
     dissolves = parse_dissolves(spec.get("dissolves"))
@@ -470,10 +492,12 @@ def verify_reuse(plan: dict[str, Any]) -> dict[str, str]:
 
 def stage_episode(spec_path: str | Path, episode_dir: str | Path) -> dict[str, Any]:
     """Write <episode_dir>/shots.json (generation only) and edit_plan.json from a full spec."""
+    from hfvg.show_profile import PROFILE_FILE, load_show_profile
     spec = json.loads(Path(spec_path).read_text(encoding="utf-8"))
-    plan = edit_plan_from_spec(spec)
-    verify_reuse(plan)
     ep = Path(episode_dir)
+    show = ep / PROFILE_FILE
+    plan = edit_plan_from_spec(spec, load_show_profile(show) if show.is_file() else None)
+    verify_reuse(plan)
     ep.mkdir(parents=True, exist_ok=True)
     (ep / "shots.json").write_text(json.dumps(generation_spec(spec), indent=1, ensure_ascii=False), encoding="utf-8")
     (ep / EDIT_PLAN_NAME).write_text(json.dumps(plan, indent=1, ensure_ascii=False), encoding="utf-8")

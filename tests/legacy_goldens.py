@@ -239,8 +239,8 @@ PLAYBOOK_VIEWS = {
 
 
 def _legacy_validator():
-    from hfvg.playbook import PlaybookValidator
-    return PlaybookValidator()
+    from hfvg.compat.legacy_playbook import LegacyPlaybookValidator
+    return LegacyPlaybookValidator()
 
 
 def moderation_lint(root: Path, mp: pytest.MonkeyPatch) -> dict:

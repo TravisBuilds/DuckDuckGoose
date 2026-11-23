@@ -717,7 +717,7 @@ async def set_shot_cast(episode_id: str, request: ShotCastRequest, authorization
                         studio_admin_token: str | None = Cookie(None)):
     """Who is in frame in each shot (shots.json ``cast``) and per-shot ``allow_text``. Only the named
     shots change; an empty list removes the shot's cast. Refused while a run is in progress."""
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
     episode_id = _episode_id(episode_id)
     actor, _, _ = await _actor(authorization, studio_admin_token)
     await _api()._refuse_upload_during_run(episode_id)
@@ -746,7 +746,7 @@ async def set_shot_cast(episode_id: str, request: ShotCastRequest, authorization
         else:
             items[sid]["allow_text"] = allow
     try:
-        parse_shots(raw)
+        parse_shots(raw, episode_profile(episode_id))
     except (ValueError, ShotDataError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}") from None
     await asyncio.to_thread(path.write_text, json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")

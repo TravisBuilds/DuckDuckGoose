@@ -1,17 +1,21 @@
 """Prompt lint gate: a code gate that runs BEFORE estimate / reserve / provider call.
 
-``lint_prompt(prompt, shot_meta, kit)`` raises PromptLintError listing every violation.
-Clause texts (count clause, locked-camera clause, real-time pattern, antler/duck clauses, banned
-decor list) come from a LintKit loaded from the per-episode ``prompt_kit.json`` (``"lint"`` section)
-or from the file named by ``PROMPT_LINT_KIT_PATH``; none is hardcoded here.
+``lint_prompt(prompt, shot_meta, kit)`` raises PromptLintError listing every violation. The rules are
+the show's (hfvg.show_profile.LintRules; a LintKit is a view over them): the count clause, the
+locked-camera clause, the real-time pattern, forbidden phrases and banned words, the clauses a shot
+must carry (``required_clauses``), the words a prompt may not use near a subject (``forbid_near``) and
+the continuity locks the submit injects. Every clause text and message is show data; none is
+hardcoded here.
 
-A per-episode kit with no ``"lint"`` key (e.g. a draft-from-idea kit) or with ``"lint": "default"``
-gets the built-in default profile instead (:func:`default_lint_kit`): content-policy terms and the
-motion rules, no series clauses. A ``"lint"`` object is parsed exactly as before.
+Where an episode's rules come from (:func:`resolve_lint_kit`): its ``show.json`` lint; else the file
+named by ``PROMPT_LINT_KIT_PATH``; else the ``HFVG_SHOW_PROFILE_PATH`` profile's lint; else the
+episode's ``prompt_kit.json``, read by the legacy adapter (hfvg.compat.legacy_show) exactly as before:
+a ``"lint"`` object is the kit's own rules, no ``"lint"`` key or ``"lint": "default"`` the built-in
+default profile (:func:`default_lint_kit`: content-policy terms and the motion rules, no series clauses).
 
-shot_meta keys: ``count`` (int), ``exterior`` / ``water`` (bool), ``characters`` (list[str]),
-optional ``antler`` / ``duck`` flags (clause required whatever the character codes say), optional
-``cast`` / ``text_policy`` (planned by hfvg.cast_plan; still prompts only, rule 13).
+shot_meta keys: ``count`` (int), ``exterior`` / ``water`` (bool), ``characters`` (list[str]), the
+show's shot flags (``flags.<name>``, or top-level for the legacy layout), optional ``cast`` /
+``text_policy`` (planned by hfvg.cast_plan; still prompts only).
 
 Live mode: any violation (or missing kit / shot_meta) refuses. Dry mode: warn only.
 """
@@ -20,26 +24,29 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 from hfvg.cast_prompt import cast_lint_violations, inject_cast_prompt, props_clip_lock
+from hfvg.compat import legacy_show
+from hfvg.compat.legacy_show import is_bath_shot  # noqa: F401  (re-exported)
 from hfvg.content_policy import hard_stop_terms, precheck_banned_words
 from hfvg.paths import episode_dir
+from hfvg.show_profile import (
+    ForbidNear,
+    LintRules,
+    ShowProfileError,
+    declared_source,
+    evaluate_when,
+    resolve_show_profile,
+)
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves", "realistic wild")
-DEFAULT_CARRY_VERBS = (
-    "carry", "carries", "carrying", "carried", "hold", "holds", "holding", "held",
-)
-
-# Built-in default profile: only rules that hold for any episode. "realistic wild", bare "waves"
-# and the moose carry/hold rule are series style rules (and "realistic wild" matches "photorealistic
-# wildlife"), so they stay with the kits that ask for them.
+DEFAULT_FORBIDDEN_PHRASES = ("nothing else moves",)
 DEFAULT_LINT_PROFILE = "default"
-DEFAULT_PROFILE_FORBIDDEN_PHRASES = ("nothing else moves",)
+SHOW_LINT_PROFILE = "show"
 
 
 class PromptLintError(ValueError):
@@ -48,164 +55,52 @@ class PromptLintError(ValueError):
 
 @dataclass(frozen=True)
 class LintKit:
-    # The three clause rules are required in a kit's own "lint" object and empty (off) only in
-    # the built-in default profile.
-    count_template: str  # must contain "{n}", e.g. "<clause with {n}>"
-    realtime_pattern: str  # regex for the real-time / no-slow-motion clause
-    locked_camera_clause: str  # required on exterior/water shots
-    antler_clause: str = ""
-    antler_characters: tuple[str, ...] = ()
-    duck_clause: str = ""
-    duck_characters: tuple[str, ...] = ()
-    banned_decor: tuple[str, ...] = ()
-    forbidden_phrases: tuple[str, ...] = DEFAULT_FORBIDDEN_PHRASES
-    moose_names: tuple[str, ...] = ("moose",)
-    carry_verbs: tuple[str, ...] = DEFAULT_CARRY_VERBS
-    # Bath rule (optional): on a bath shot (animals soaking: shot_meta wet + water + count > 0,
-    # or an explicit shot_meta.bath flag) the prompt must carry bath_clause (e.g. "submerged up to
-    # the shoulders, visible waterline, ...") and none of bath_forbidden ("on top of the water").
-    bath_clause: str = ""
-    bath_forbidden: tuple[str, ...] = ()
-    # GAP-40: continuity locks the harness INJECTS into every matching prompt (still and/or clip)
-    # before lint, and lint then requires (fail closed if an injection was skipped). Each lock is
-    # {"id", "when": "duck" | "animals" | "always", "kinds": ["still", "clip"], "text"}.
-    continuity_locks: tuple = ()
-    animal_characters: tuple[str, ...] = ()
-    # GAP-40: style split - only the duck is plush-stylised, so a sentence that names the duck may
-    # never also carry a realism word (realistic / photoreal / lifelike ...).
-    duck_names: tuple[str, ...] = ()
-    duck_realism_words: tuple[str, ...] = ()
-    # Built-in default profile only (a kit's "lint" object never sets these): the content-policy
-    # terms (hfvg.content_policy) refused anywhere in the prompt, and the series bare-"waves" rule off.
-    content_policy_terms: bool = False
-    forbid_bare_waves: bool = True
-    profile: str = "kit"  # "kit": the kit's own "lint" rules; "default": default_lint_kit()
-    _extra: dict = field(default_factory=dict, compare=False, repr=False)
+    """The lint rules one episode's prompts are checked against. ``profile``: ``"kit"`` (a
+    prompt_kit.json ``"lint"`` object), ``"default"`` (:func:`default_lint_kit`) or ``"show"`` (a show
+    profile's lint)."""
+    rules: LintRules = field(default_factory=LintRules)
+    profile: str = "kit"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LintKit":
-        def tup(key: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
-            value = data.get(key, default)
-            if isinstance(value, str) or not isinstance(value, (list, tuple)):
-                raise PromptLintError(f"Lint kit field {key!r} must be a list of strings")
-            return tuple(str(v) for v in value)
+        """A prompt_kit.json ``"lint"`` object, compiled into rules by the legacy adapter (every key and
+        message the kits were written with keeps its meaning)."""
+        return cls(rules=legacy_show.compile_kit(data), profile="kit")
 
-        for required in ("count_template", "realtime_pattern", "locked_camera_clause"):
-            if not isinstance(data.get(required), str) or not data[required].strip():
-                raise PromptLintError(f"Lint kit is missing required field {required!r}")
-        if "{n}" not in data["count_template"]:
-            raise PromptLintError("Lint kit count_template must contain '{n}'")
-        try:
-            re.compile(data["realtime_pattern"])
-        except re.error as e:
-            raise PromptLintError(f"Lint kit realtime_pattern is not a valid regex: {e}") from e
-        return cls(
-            count_template=data["count_template"],
-            realtime_pattern=data["realtime_pattern"],
-            locked_camera_clause=data["locked_camera_clause"],
-            antler_clause=str(data.get("antler_clause", "")),
-            antler_characters=tup("antler_characters"),
-            duck_clause=str(data.get("duck_clause", "")),
-            duck_characters=tup("duck_characters"),
-            banned_decor=tup("banned_decor"),
-            forbidden_phrases=tup("forbidden_phrases", DEFAULT_FORBIDDEN_PHRASES),
-            moose_names=tup("moose_names", ("moose",)),
-            carry_verbs=tup("carry_verbs", DEFAULT_CARRY_VERBS),
-            bath_clause=str(data.get("bath_clause", "")),
-            bath_forbidden=tup("bath_forbidden"),
-            continuity_locks=parse_continuity_locks(data.get("continuity_locks", [])),
-            animal_characters=tup("animal_characters"),
-            duck_names=tup("duck_names"),
-            duck_realism_words=tup("duck_realism_words"),
-        )
+    @property
+    def count_template(self) -> str:
+        return self.rules.count_template
 
+    @property
+    def realtime_pattern(self) -> str:
+        return self.rules.realtime_pattern
 
-LOCK_WHEN = ("duck", "animals", "always")
-LOCK_KINDS = ("still", "clip")
-DEFAULT_DUCK_NAMES = ("duck",)
-DEFAULT_DUCK_REALISM_WORDS = ("realistic", "photoreal", "photorealistic", "photo-real", "photo-realistic",
-                              "lifelike", "life-like", "hyperreal", "hyper-real", "hyperrealistic")
+    @property
+    def locked_camera_clause(self) -> str:
+        return self.rules.locked_camera_clause
 
+    @property
+    def forbidden_phrases(self) -> tuple[str, ...]:
+        return self.rules.forbidden_phrases
 
-def parse_continuity_locks(raw: Any) -> tuple:
-    """Validate the kit's continuity_locks list (GAP-40). Returns a tuple of frozen dict items."""
-    if raw in (None, []):
-        return ()
-    if not isinstance(raw, list):
-        raise PromptLintError("Lint kit field 'continuity_locks' must be a list")
-    out, seen = [], set()
-    for i, lock in enumerate(raw):
-        if not isinstance(lock, dict):
-            raise PromptLintError(f"continuity_locks[{i}] must be an object")
-        lid = str(lock.get("id") or "").strip()
-        text = " ".join(str(lock.get("text") or "").split())
-        when = lock.get("when")
-        kinds = lock.get("kinds", list(LOCK_KINDS))
-        if not lid or lid in seen:
-            raise PromptLintError(f"continuity_locks[{i}] needs a unique non-empty id")
-        if not text:
-            raise PromptLintError(f"continuity lock {lid!r} has no text")
-        if when not in LOCK_WHEN:
-            raise PromptLintError(f"continuity lock {lid!r}: when must be one of {LOCK_WHEN}")
-        if not isinstance(kinds, list) or not kinds or any(k not in LOCK_KINDS for k in kinds):
-            raise PromptLintError(f"continuity lock {lid!r}: kinds must be a non-empty subset of {LOCK_KINDS}")
-        seen.add(lid)
-        out.append((("id", lid), ("when", when), ("kinds", tuple(kinds)), ("text", text)))
-    return tuple(out)
+    @property
+    def continuity_locks(self) -> tuple:
+        return self.rules.continuity_locks
 
 
 def default_lint_kit(continuity_locks: Any = None) -> LintKit:
-    """The built-in default profile, for kits written without series lint rules (free-form prompts).
-
-    Kept: the content-policy terms (docs/CONTENT-POLICY.md hard-stop terms plus the still precheck's
-    banned words), "nothing else moves", the clip motion rules, the kit's continuity locks
-    (GAP-40), the duck realism split and the fail-closed antler/duck shot_meta flags. Off: every
-    series clause (count, real-time, locked-camera, antler/duck/bath) and the series style rules.
-    """
-    return LintKit(
-        count_template="",
-        realtime_pattern="",
-        locked_camera_clause="",
-        forbidden_phrases=DEFAULT_PROFILE_FORBIDDEN_PHRASES,
-        moose_names=(),
-        content_policy_terms=True,
-        forbid_bare_waves=False,
-        continuity_locks=parse_continuity_locks(continuity_locks),
-        profile=DEFAULT_LINT_PROFILE,
-    )
+    """The built-in default profile, for kits written without lint rules of their own (free-form prompts):
+    the content-policy terms (docs/CONTENT-POLICY.md hard-stop terms plus the still precheck's banned
+    words), "nothing else moves", the clip motion rules and the kit's continuity locks (GAP-40), with
+    the legacy adapter's flag clauses and style split. No count, real-time or locked-camera clause."""
+    return LintKit(rules=legacy_show.default_lint_rules(continuity_locks), profile=DEFAULT_LINT_PROFILE)
 
 
-def _lock(item) -> dict:
-    return dict(item)
-
-
-def duck_present(shot_meta: dict[str, Any] | None, kit: "LintKit") -> bool:
-    meta = shot_meta or {}
-    present = {str(c).lower() for c in (meta.get("characters") or [])}
-    return bool(meta.get("duck")) or bool(present & {c.lower() for c in kit.duck_characters})
-
-
-def animals_present(shot_meta: dict[str, Any] | None, kit: "LintKit") -> bool:
-    meta = shot_meta or {}
-    count = meta.get("count")
-    if isinstance(count, int) and not isinstance(count, bool) and count > 0:
-        return True
-    present = {str(c).lower() for c in (meta.get("characters") or [])}
-    return bool(present & {c.lower() for c in kit.animal_characters})
-
-
-def applicable_locks(shot_meta: dict[str, Any] | None, kit: "LintKit", kind: str) -> list[dict]:
+def applicable_locks(shot_meta: dict[str, Any] | None, kit: LintKit, kind: str) -> list[dict]:
     """The continuity locks that apply to this shot and prompt kind, in kit order; then, for the clip
     of a shot with props or a place, the shot's own lock naming them (hfvg.cast_prompt.props_clip_lock)."""
-    out = []
-    for item in kit.continuity_locks:
-        lock = _lock(item)
-        if kind not in lock["kinds"]:
-            continue
-        when = lock["when"]
-        if when == "always" or (when == "duck" and duck_present(shot_meta, kit)) or (
-                when == "animals" and animals_present(shot_meta, kit)):
-            out.append(lock)
+    out = [dict(lock) for lock in kit.rules.continuity_locks
+           if kind in lock.kinds and evaluate_when(lock.when, shot_meta)]
     shot_lock = props_clip_lock(shot_meta)
     if shot_lock and kind in shot_lock["kinds"]:
         out.append(shot_lock)
@@ -216,7 +111,7 @@ def _norm(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def inject_continuity_locks(prompt: str, shot_meta: dict[str, Any] | None, kit: "LintKit",
+def inject_continuity_locks(prompt: str, shot_meta: dict[str, Any] | None, kit: LintKit,
                             kind: str = "still") -> tuple[str, list[str]]:
     """GAP-40: (prompt with every applicable lock appended once, ids appended). Idempotent: a lock whose
     text is already in the prompt (whitespace/case-insensitive) is not added again. Pure."""
@@ -230,87 +125,109 @@ def inject_continuity_locks(prompt: str, shot_meta: dict[str, Any] | None, kit: 
     return out, added
 
 
-def duck_realism_violations(prompt: str, shot_meta: dict[str, Any] | None, kit: "LintKit") -> list[str]:
-    """GAP-40 style split: on a duck shot no sentence that names the duck may carry a realism word."""
-    if not duck_present(shot_meta, kit):
-        return []
-    names = tuple(n.lower() for n in (kit.duck_names or DEFAULT_DUCK_NAMES))
-    words = tuple(w.lower() for w in (kit.duck_realism_words or DEFAULT_DUCK_REALISM_WORDS))
-    problems = []
-    for sentence in re.split(r"[.!?;\n]+", prompt):
-        low = sentence.lower()
-        if not any(re.search(rf"(?<![a-z]){re.escape(n)}(?![a-z])", low) for n in names):
-            continue
-        for w in words:
-            if re.search(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low):
-                problems.append(f"realism word {w!r} attached to the duck (only the duck is plush-stylised): "
-                                f"{sentence.strip()[:120]!r}")
-                break
-    return problems
-
-
 def _contains(prompt: str, clause: str) -> bool:
     return clause.strip().lower() in prompt.lower()
 
 
-def is_bath_shot(shot_meta: dict[str, Any] | None) -> bool:
-    """Animals soaking in the water: explicit shot_meta.bath, else wet + water + count > 0."""
-    meta = shot_meta or {}
-    if "bath" in meta:
-        return bool(meta["bath"])
-    count = meta.get("count")
-    has_animals = isinstance(count, int) and not isinstance(count, bool) and count > 0
-    return bool(meta.get("wet") and meta.get("water") and has_animals)
+# ------------------------------------------------------------------------------------------ rules
+
+_UNIT_SPLIT = {"sentence": r"[.!?\n]+", "clause": r"[.!?;\n]+"}
+
+
+def _units(prompt: str, scope: str) -> list[str]:
+    return [prompt] if scope == "prompt" else re.split(_UNIT_SPLIT[scope], prompt)
+
+
+def _finder(match: str):
+    """(word, text) -> found? for one ``forbid_near`` match mode."""
+    if match == "letters":
+        return lambda w, text: re.search(rf"(?<![a-z]){re.escape(w.lower())}(?![a-z])", text.lower()) is not None
+    if match == "substring":
+        return lambda w, text: bool(w.strip()) and w.lower() in text.lower()
+    return lambda w, text: re.search(rf"\b{re.escape(w)}\b", text, re.IGNORECASE) is not None
+
+
+def near_violations(rule: ForbidNear, prompt: str) -> list[str]:
+    """One ``forbid_near`` rule over the prompt: per unit (sentence, clause or the whole prompt) that
+    names a subject (any unit when the rule has none), the words found in it; one message per unit
+    (the first word) or per word."""
+    found = _finder(rule.match)
+    problems = []
+    for unit in _units(prompt, rule.scope):
+        subject = next((s for s in rule.subjects if found(s, unit)), None)
+        if rule.subjects and subject is None:
+            continue
+        words = [w for w in rule.words if found(w, unit)]
+        if rule.report == "unit":
+            words = words[:1]
+        quote = unit.strip()[:rule.max_quote] if rule.max_quote else unit.strip()
+        problems += [rule.message.format(word=w, subject=subject or "", sentence=quote) for w in words]
+    return problems
+
+
+def _clause_violations(prompt: str, meta: dict, rules: LintRules, kind: str) -> list[str]:
+    problems = []
+    for clause in rules.required_clauses:
+        if kind not in clause.kinds or not evaluate_when(clause.when, meta):
+            continue
+        if not clause.text.strip():
+            problems.append((clause.missing_text_message or "show lint has no text for required clause {id!r}")
+                            .format(id=clause.id, text=clause.text))
+        elif not _contains(prompt, clause.text):
+            problems.append(clause.message.format(id=clause.id, text=clause.text))
+    return problems
+
+
+def _near_violations(prompt: str, meta: dict, rules: LintRules, kind: str, after: str) -> list[str]:
+    return [p for rule in rules.forbid_near
+            if rule.after == after and kind in rule.kinds and evaluate_when(rule.when, meta)
+            for p in near_violations(rule, prompt)]
 
 
 def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: str = "still") -> list[str]:
     """Return every violation (empty list when the prompt is clean)."""
     problems: list[str] = []
     meta = shot_meta or {}
+    rules = kit.rules
 
-    # 1. Count clause with N == shot_meta.count
+    # Count clause with N == shot_meta.count
     count = meta.get("count")
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         problems.append("shot_meta.count must be a non-negative integer")
-    elif kit.count_template:
-        pattern = re.escape(kit.count_template.strip()).replace(re.escape("{n}"), r"(\d+)")
+    elif rules.count_template:
+        pattern = re.escape(rules.count_template.strip()).replace(re.escape("{n}"), r"(\d+)")
         found = [int(m) for m in re.findall(pattern, prompt, flags=re.IGNORECASE)]
         if not found:
-            problems.append(f"missing count clause: {kit.count_template.replace('{n}', str(count))!r}")
+            if rules.count_required:
+                problems.append(f"missing count clause: {rules.count_template.replace('{n}', str(count))!r}")
         elif any(n != count for n in found):
             problems.append(f"count clause mismatch: prompt says {found}, shot_meta.count is {count}")
 
-    # 2. Locked camera clause on exterior / water shots
-    if (kit.locked_camera_clause and (meta.get("exterior") or meta.get("water"))
-            and not _contains(prompt, kit.locked_camera_clause)):
-        problems.append(f"missing locked-camera clause on exterior/water shot: {kit.locked_camera_clause!r}")
+    # Locked camera clause on exterior / water shots
+    if (rules.locked_camera_clause and (meta.get("exterior") or meta.get("water"))
+            and not _contains(prompt, rules.locked_camera_clause)):
+        problems.append(f"missing locked-camera clause on exterior/water shot: {rules.locked_camera_clause!r}")
 
-    # 3. Real-time / no slow motion clause
-    if kit.realtime_pattern and not re.search(kit.realtime_pattern, prompt, flags=re.IGNORECASE | re.DOTALL):
+    # Real-time / no slow motion clause
+    if rules.realtime_pattern and not re.search(rules.realtime_pattern, prompt, flags=re.IGNORECASE | re.DOTALL):
         problems.append("missing real-time / no-slow-motion clause")
 
-    # 4. Forbidden phrases
+    # Forbidden phrases
     lowered = prompt.lower()
-    for phrase in kit.forbidden_phrases:
+    for phrase in rules.forbidden_phrases:
         if phrase.lower() in lowered:
             problems.append(f"forbidden phrase: {phrase!r}")
-    if kit.forbid_bare_waves and re.search(r"\bwaves\b", prompt, flags=re.IGNORECASE):
+    if rules.forbid_bare_waves and re.search(r"\bwaves\b", prompt, flags=re.IGNORECASE):
         problems.append("bare 'waves' is forbidden (only 'ONE small wave')")
+    problems.extend(_near_violations(prompt, meta, rules, kind, "forbidden_phrases"))
 
-    # 5. Carry/hold verbs for a moose
-    verbs = "|".join(re.escape(v) for v in kit.carry_verbs)
-    for sentence in re.split(r"[.!?\n]+", prompt):
-        has_moose = any(re.search(rf"\b{re.escape(n)}\b", sentence, re.IGNORECASE) for n in kit.moose_names)
-        if has_moose and verbs and re.search(rf"\b(?:{verbs})\b", sentence, re.IGNORECASE):
-            problems.append(f"carry/hold verb used with a moose: {sentence.strip()!r}")
-
-    # 6. Banned decor list
-    for word in kit.banned_decor:
+    # Banned words
+    for word in rules.banned_words:
         if word and re.search(rf"\b{re.escape(word)}\b", prompt, flags=re.IGNORECASE):
-            problems.append(f"banned decor word: {word!r}")
-    # 6b. Content-policy terms (built-in default profile), each read the way its own check reads
-    # it: hard-stop terms as whole words (moderation ladder), banned words as substrings (still precheck)
-    if kit.content_policy_terms:
+            problems.append(rules.banned_words_message.format(word=word))
+    # Content-policy terms, each read the way its own check reads it: hard-stop terms as whole words
+    # (moderation ladder), banned words as substrings (still precheck)
+    if rules.content_policy_terms:
         hard = hard_stop_terms(prompt)
         for term in hard:
             problems.append(f"content-policy hard-stop term: {term!r} (docs/CONTENT-POLICY.md)")
@@ -318,48 +235,30 @@ def lint_violations(prompt: str, shot_meta: dict[str, Any], kit: LintKit, kind: 
             if word not in hard:
                 problems.append(f"banned word {word!r}: the live still precheck refuses it (docs/CONTENT-POLICY.md)")
 
-    # 7. Antler clause when an antler character is present; 8. duck clause when duck present
-    present = {str(c).lower() for c in (meta.get("characters") or [])}
-    if present & {c.lower() for c in kit.antler_characters}:
-        if not kit.antler_clause.strip():
-            problems.append("lint kit has no antler_clause but an antler character is present")
-        elif not _contains(prompt, kit.antler_clause):
-            problems.append(f"missing antler clause: {kit.antler_clause!r}")
-    if present & {c.lower() for c in kit.duck_characters}:
-        if not kit.duck_clause.strip():
-            problems.append("lint kit has no duck_clause but the duck is present")
-        elif not _contains(prompt, kit.duck_clause):
-            problems.append(f"missing duck clause: {kit.duck_clause!r}")
-    # 9. Explicit shot_meta flags (antler / duck) require the clause even if no character code matched
-    for flag, clause, codes, label in (
-        ("antler", kit.antler_clause, kit.antler_characters, "antler"),
-        ("duck", kit.duck_clause, kit.duck_characters, "duck"),
-    ):
-        if meta.get(flag) and not (present & {c.lower() for c in codes}):
-            if not clause.strip():
-                problems.append(f"lint kit has no {label}_clause but shot_meta.{flag} is set")
-            elif not _contains(prompt, clause):
-                problems.append(f"missing {label} clause (shot_meta.{flag}): {clause!r}")
-    # 10. Bath rule: soaking with a visible waterline, never standing/floating on top of the water
-    if is_bath_shot(meta):
-        if kit.bath_clause.strip() and not _contains(prompt, kit.bath_clause):
-            problems.append(f"missing bath clause on bath shot: {kit.bath_clause!r}")
-        for phrase in kit.bath_forbidden:
-            if phrase.strip() and phrase.lower() in lowered:
-                problems.append(f"bath shot prompt puts an animal on the water: {phrase!r}")
-    # 11. GAP-40: every applicable continuity lock must be in the prompt (the submit injects them)
+    # The clauses this shot must carry, then the near-word rules that follow them
+    problems.extend(_clause_violations(prompt, meta, rules, kind))
+    problems.extend(_near_violations(prompt, meta, rules, kind, "required_clauses"))
+    # GAP-40: every applicable continuity lock must be in the prompt (the submit injects them)
     for lock in applicable_locks(meta, kit, kind):
         if _norm(lock["text"]) not in _norm(prompt):
             problems.append(f"missing continuity lock {lock['id']!r} ({kind})")
-    # 12. GAP-40: no realism word attached to the duck
-    problems.extend(duck_realism_violations(prompt, meta, kit))
-    # 13. Cast (still prompts): each character in frame carries its locked description, each picked
+    problems.extend(_near_violations(prompt, meta, rules, kind, "continuity_locks"))
+    # Cast (still prompts): each character in frame carries its locked description, each picked
     # prop and place its description and, under the no_text policy, the no-text constraint with no
     # request for on-image words (the submit injects them; hfvg.cast_prompt). Shots without
     # shot_meta cast / props / text_policy: no-op.
     if kind == "still":
         problems.extend(cast_lint_violations(prompt, meta))
     return problems
+
+
+def ref_edit_violations(prompt: str, lock_meta: dict[str, Any] | None, kit: LintKit) -> list[str]:
+    """The show's rules for ref-edit prompts (kind ``ref_edit``): its required clauses and near-word rules."""
+    meta = lock_meta or {}
+    return (_near_violations(prompt, meta, kit.rules, "ref_edit", "forbidden_phrases")
+            + _clause_violations(prompt, meta, kit.rules, "ref_edit")
+            + _near_violations(prompt, meta, kit.rules, "ref_edit", "required_clauses")
+            + _near_violations(prompt, meta, kit.rules, "ref_edit", "continuity_locks"))
 
 
 # Clip (motion) prompt rules on top of the shared kit rules: a clip prompt must not freeze the scene
@@ -391,28 +290,30 @@ def lint_prompt(prompt: str, shot_meta: dict[str, Any], kit: LintKit) -> None:
         raise PromptLintError("Prompt lint failed: " + "; ".join(problems))
 
 
+# ------------------------------------------------------------------------------------------ resolution
+
+
 def resolve_lint_kit(episode_id: str) -> tuple[LintKit, str | None]:
     """(kit, notice): the episode's lint kit, and a notice when the built-in default profile
     applies only because the per-episode prompt_kit.json has no "lint" key (None otherwise).
 
-    PROMPT_LINT_KIT_PATH file (a bare lint section or a full kit), else
-    <EPISODES_DIR>/<episode>/prompt_kit.json. A "lint" object is the kit's own rules; ``"lint":
-    "default"`` (or, per-episode, no "lint" key) is :func:`default_lint_kit`. Raises PromptLintError
-    for a missing or unreadable kit, any other "lint" value, or an override with no lint rules.
+    The episode's show.json lint; else the PROMPT_LINT_KIT_PATH file (a bare lint section or a full
+    kit); else the HFVG_SHOW_PROFILE_PATH profile's lint; else <EPISODES_DIR>/<episode>/prompt_kit.json.
+    A kit's "lint" object is its own rules; ``"lint": "default"`` (or, per-episode, no "lint" key) is
+    :func:`default_lint_kit`. Raises PromptLintError for a missing or unreadable kit, any other "lint"
+    value, an override with no lint rules, or a show profile that does not load.
     """
+    declared = declared_source(episode_id)
     override = os.getenv("PROMPT_LINT_KIT_PATH", "").strip()
+    if declared == "episode" or (declared == "env" and not override):
+        return _show_kit(episode_id), None
     if override:
         path = Path(override)
     else:
         path = episode_dir(episode_id) / "prompt_kit.json"
     if not path.is_file():
         raise PromptLintError(f"No prompt lint kit found for {episode_id} (looked at {path})")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise PromptLintError(f"Cannot read prompt lint kit {path}: {e}") from e
-    if not isinstance(data, dict):
-        raise PromptLintError(f"Prompt lint kit {path} must be a JSON object")
+    data = _read_kit(path)
     # A full prompt_kit.json (with a "lint" section) may be given as the override; a bare lint
     # section file is still accepted.
     section = data.get("lint") if (not override or isinstance(data.get("lint"), dict)) else data
@@ -424,6 +325,43 @@ def resolve_lint_kit(episode_id: str) -> tuple[LintKit, str | None]:
         # GAP-40: the kit's top-level continuity_locks (CONTINUITY section) apply to the lint too
         section = {**section, "continuity_locks": data["continuity_locks"]}
     return LintKit.from_dict(section), None
+
+
+def _read_kit(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise PromptLintError(f"Cannot read prompt lint kit {path}: {e}") from e
+    if not isinstance(data, dict):
+        raise PromptLintError(f"Prompt lint kit {path} must be a JSON object")
+    return data
+
+
+def _show_kit(episode_id: str) -> LintKit:
+    """The lint of the episode's show profile, with the top-level continuity locks of its
+    prompt_kit.json (when it has one). A ``"lint"`` object in that kit is refused: the show profile
+    holds the episode's lint rules, and two rule sets would leave one of them unread."""
+    try:
+        profile = resolve_show_profile(episode_id)
+    except ShowProfileError as e:
+        raise PromptLintError(f"Show profile does not load: {e}") from e
+    rules = profile.lint
+    path = episode_dir(episode_id) / "prompt_kit.json"
+    if path.is_file():
+        data = _read_kit(path)
+        if isinstance(data.get("lint"), dict):
+            raise PromptLintError(
+                f"Prompt lint kit {path} has its own \"lint\" rules but the episode's lint comes from its show "
+                f"profile ({profile.path}): move them into the profile's \"lint\" (docs/SHOW-PROFILE.md)")
+        if data.get("lint", DEFAULT_LINT_PROFILE) != DEFAULT_LINT_PROFILE:
+            raise PromptLintError(f"Prompt lint kit {path}: \"lint\" must be an object or \"{DEFAULT_LINT_PROFILE}\", "
+                                  f"got {json.dumps(data['lint'])}")
+        locks = legacy_show.build_locks(legacy_show.parse_locks(data.get("continuity_locks", [])))
+        clash = sorted({lk.id for lk in locks} & {lk.id for lk in rules.continuity_locks})
+        if clash:
+            raise PromptLintError(f"Continuity lock ids {clash} are in both {path} and the show profile")
+        rules = replace(rules, continuity_locks=rules.continuity_locks + locks)
+    return LintKit(rules=rules, profile=SHOW_LINT_PROFILE)
 
 
 def _default_profile(path: Path, data: dict, override: bool) -> tuple[LintKit, str | None]:
@@ -477,7 +415,7 @@ def lint_summary(episode_id: str, plans: dict[str, dict[str, Any]]) -> dict[str,
     a pre-approved start still submits no still, so only its clip prompt (clip_prompt, else the
     still prompt) is linted; otherwise both. Same kit, continuity-lock and cast injection and rules as
     the live submit gate (apply_continuity_locks + inject_cast_prompt + enforce_prompt_lint). JSON-safe result:
-    ``{"ok", "profile": "kit" | "default" | None, "notice", "kit_error", "shots": {shot_id:
+    ``{"ok", "profile": "kit" | "default" | "show" | None, "notice", "kit_error", "shots": {shot_id:
     [problem, ...]} (shots with problems only), "problem_count"}``.
     """
     try:
@@ -537,10 +475,11 @@ def enforce_prompt_lint(
 
 def apply_ref_edit_locks(episode_id: str, prompt: str, lock_meta: dict[str, Any] | None,
                          live: bool) -> tuple[str, list[str]]:
-    """GAP-42: a ref-edit prompt whose refs.json entry declares ``lock_meta`` (e.g. {"duck": true})
-    gets the kit's still continuity locks injected, and the duck style split (no realism word in a
-    sentence naming the duck) is enforced. Live: a kit problem or a realism hit raises before any
-    upload/estimate/spend. No lock_meta: the prompt is returned unchanged."""
+    """GAP-42: a ref-edit prompt whose refs.json entry declares ``lock_meta`` (shot flags and characters,
+    e.g. {"flags": {"on_camera": true}}; the legacy layout's top-level flags are read too) gets the
+    kit's still continuity locks injected, and the show's ref-edit rules (:func:`ref_edit_violations`)
+    are enforced. Live: a kit problem or a rule hit raises before any upload/estimate/spend. No
+    lock_meta: the prompt is returned unchanged."""
     if not lock_meta:
         return prompt, []
     try:
@@ -550,7 +489,7 @@ def apply_ref_edit_locks(episode_id: str, prompt: str, lock_meta: dict[str, Any]
             raise
         return prompt, []
     out, added = inject_continuity_locks(prompt, lock_meta, kit, "still")
-    problems = duck_realism_violations(out, lock_meta, kit)
+    problems = ref_edit_violations(out, lock_meta, kit)
     if problems and live:
         raise PromptLintError("Ref edit prompt lint failed: " + "; ".join(problems))
     for problem in problems:

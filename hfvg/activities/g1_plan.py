@@ -87,9 +87,10 @@ def _dry_plan(shots: list[dict], pre_approved: set[str], extra: dict) -> dict:
     }
 
 
-def _moderation_preview(shots: list[dict], pre_approved: set[str]) -> dict:
+def _moderation_preview(shots: list[dict], pre_approved: set[str], episode_id: str | None = None) -> dict:
     """B5: what the moderation lint will decide at each paid submit (evaluated as dry here, so a
-    hard rule shows "would_refuse" at G1 instead of surprising the run later)."""
+    hard rule shows "would_refuse" at G1 instead of surprising the run later), with the episode's
+    show profile rules."""
     from hfvg.moderation_lint import ModerationLintError, evaluate
     out: dict[str, dict] = {}
     for shot in shots:
@@ -99,11 +100,11 @@ def _moderation_preview(shots: list[dict], pre_approved: set[str]) -> dict:
         try:
             if sid not in pre_approved:
                 row["still"] = evaluate(sid, shot.get("prompt", ""), shot.get("shot_meta"), kind="still",
-                                        refs=shot.get("refs"), live=False)
+                                        refs=shot.get("refs"), live=False, episode_id=episode_id)
             row["clip"] = evaluate(sid, shot.get("clip_prompt") or shot.get("prompt", ""), shot.get("shot_meta"),
                                    kind="clip", model=params.get("model", "kling"), tags=shot.get("tags"),
-                                   live=False)
-        except ModerationLintError as e:  # invalid HFVG_PLAYBOOK_HARD_RULES
+                                   live=False, episode_id=episode_id)
+        except ModerationLintError as e:  # invalid HFVG_PLAYBOOK_HARD_RULES or show.json
             row = {"error": str(e)}
         out[sid] = row
     return out
@@ -190,7 +191,7 @@ async def compute_g1_plan_activity(episode_id: str, shots: list[dict], dry_run: 
     pre_approved = await _pre_approved_ids(episode_id, shots)
     preflight_fields["pre_approved_stills"] = sorted(pre_approved)
     preflight_fields["picture_seconds"] = picture_seconds(shots)
-    preflight_fields["moderation_lint"] = _moderation_preview(with_cast_prompts(shots), pre_approved)
+    preflight_fields["moderation_lint"] = _moderation_preview(with_cast_prompts(shots), pre_approved, episode_id)
     preflight_fields["prompt_lint"] = _prompt_lint_preview(episode_id, shots, pre_approved)
     cast = _cast_preview(shots)
     if cast:

@@ -1,7 +1,7 @@
 """Per-shot private data (shots.json + refs.json): loader, validation, merge into shot plans.
 
 Private inputs (never committed): a ``shots.json`` (per-shot count, characters, wet, model, duration,
-end frame, antler/duck flags and the FINAL ``prompt``, used as-is) and a ``refs.json`` (per-shot ref
+end frame, the show's shot flags and the FINAL ``prompt``, used as-is) and a ``refs.json`` (per-shot ref
 lists). Paths come from ``SHOTS_JSON_PATH`` / ``REFS_JSON_PATH`` or default to
 ``<EPISODES_DIR>/<episode>/shots.json`` / ``refs.json`` (uploadable via the local API).
 
@@ -12,6 +12,10 @@ shot is held at G2.01 until the file exists.
 A shot may declare who is in frame (``cast``); planning (``hfvg.cast_plan``) adds those characters'
 identity refs after the refs.json refs (``cast:`` ref keys, resolved from the cast library, not from
 refs.json) and their locked descriptions to ``shot_meta``. Shots without a cast are unchanged.
+
+The shot flags a shot may set are the show's (show profile ``shot_flags``, hfvg.show_profile): each is
+copied into ``shot_meta.flags`` with its declared type, or, for the legacy adapter's flags, coerced to
+bool at the top level of ``shot_meta`` (with their ``*_declared`` marker) exactly as before.
 """
 
 import json
@@ -20,10 +24,12 @@ from pathlib import Path
 from typing import Any
 
 from hfvg.cast_prompt import parse_cast_request, parse_props_request
+from hfvg.compat import legacy_show
 from hfvg.paths import episode_dir
 from hfvg.qc.clip_constraints import ConstraintError, validate_constraints
 from hfvg.qc.continuity import ContinuityError, validate_hard_checks
 from hfvg.routing import MODELS
+from hfvg.show_profile import FLAG_TYPES, ShowProfile, ShowProfileError, resolve_show_profile
 
 
 class ShotDataError(ValueError):
@@ -60,8 +66,66 @@ def _require(shot: dict, key: str, kind: type | tuple, sid: str) -> Any:
     return value
 
 
-def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
-    """Validate shots.json content and return {shot_id: normalized plan fields}."""
+def episode_profile(episode_id: str) -> ShowProfile:
+    """The episode's show profile (hfvg.show_profile.resolve_show_profile); a show.json that does not
+    load raises ShotDataError."""
+    try:
+        return resolve_show_profile(episode_id)
+    except ShowProfileError as e:
+        raise ShotDataError(f"Show profile does not load: {e}") from e
+
+
+def top_level_flags(item: dict, profile: ShowProfile, specs=None) -> dict[str, bool]:
+    """The legacy layout's flags (``top_level`` shot flags): bool at the top of shot_meta, each followed
+    by its declared marker when it has one."""
+    out: dict[str, bool] = {}
+    for spec in specs if specs is not None else profile.shot_flags:
+        if spec.top_level:
+            out[spec.meta] = bool(item.get(spec.key, spec.default if spec.default is not None else False))
+            if spec.declared_meta:
+                out[spec.declared_meta] = spec.key in item
+    return out
+
+
+def shot_flags(item: dict, sid: str, profile: ShowProfile) -> dict[str, Any] | None:
+    """``shot_meta.flags``: every non-top-level shot flag the shot sets (or its default), checked
+    against its declared type; None when the show declares none."""
+    specs = [f for f in profile.shot_flags if not f.top_level]
+    if not specs:
+        return None
+    flags: dict[str, Any] = {}
+    for spec in specs:
+        if spec.key in item:
+            value = item[spec.key]
+            if type(value) is not FLAG_TYPES[spec.type]:
+                raise ShotDataError(f"shots.json shot {sid}: {spec.key} must be a {spec.type}, got {value!r}")
+            flags[spec.meta] = value
+        elif spec.default is not None:
+            flags[spec.meta] = spec.default
+        if spec.declared_meta:
+            flags[spec.declared_meta] = spec.key in item
+    return flags
+
+
+def shot_roles(characters: list[str], cast: list[dict], profile: ShowProfile) -> list[str]:
+    """The roles of the shot's characters: its cast entries' roles (show profile ``cast``) and those of
+    its beatmap character codes, in order, once each."""
+    roles: list[str] = []
+    for entry in cast:
+        role = getattr(profile.cast.get(entry.get("character")), "role", "")
+        if role and role not in roles:
+            roles.append(role)
+    for code in characters:
+        spec = profile.character_codes.get(code)
+        if spec is not None and not spec.key and spec.role and spec.role not in roles:
+            roles.append(spec.role)
+    return roles
+
+
+def parse_shots(data: Any, profile: ShowProfile | None = None) -> dict[str, dict[str, Any]]:
+    """Validate shots.json content and return {shot_id: normalized plan fields}. ``profile``: the show
+    whose shot flags and roles are read (None: the legacy adapter's)."""
+    profile = profile if profile is not None else legacy_show.series_profile()
     items = data.get("shots") if isinstance(data, dict) else None
     if not isinstance(items, list) or not items:
         raise ShotDataError("shots.json must contain a non-empty 'shots' list")
@@ -137,10 +201,7 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
                 "exterior": bool(item.get("exterior", False)),
                 "water": bool(item.get("water", False)),
                 "wet": wet,
-                "antler": bool(item.get("antler_character", False)),
-                "duck": bool(item.get("duck_present", False)),
-                # declared at all? (the playbook duck_role rule only judges an explicit duck_present)
-                "duck_declared": "duck_present" in item,
+                **top_level_flags(item, profile),
                 "end_frame": end_frame,
                 "seedance_resolution": seedance_res,
             },
@@ -158,6 +219,12 @@ def parse_shots(data: Any) -> dict[str, dict[str, Any]]:
             "qc_fail_if": list(qc_fail_if or []),
         }
         _parse_cast_fields(item, sid, out[sid])
+        flags = shot_flags(item, sid, profile)
+        if flags is not None:
+            out[sid]["shot_meta"]["flags"] = flags
+        roles = shot_roles(out[sid]["shot_meta"]["characters"], out[sid].get("cast") or [], profile)
+        if roles:
+            out[sid]["shot_meta"]["roles"] = roles
     return out
 
 
@@ -382,7 +449,7 @@ def load_shot_plans(episode_id: str, require: bool) -> dict[str, dict[str, Any]]
                 "(set SHOTS_JSON_PATH or upload it)"
             )
         return None
-    plans = parse_shots(_read_json(path, "shots.json"))
+    plans = parse_shots(_read_json(path, "shots.json"), episode_profile(episode_id))
     if not refs_json_path(episode_id).is_file() and not require:
         for plan in plans.values():
             plan.update({"refs": [], "missing_refs": []})

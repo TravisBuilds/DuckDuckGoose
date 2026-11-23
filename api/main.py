@@ -1582,11 +1582,11 @@ async def upload_shots(
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     await _refuse_upload_during_run(episode_id)
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
 
     shots_bytes = await shots_file.read()
     try:
-        plans = parse_shots(json.loads(shots_bytes))
+        plans = parse_shots(json.loads(shots_bytes), episode_profile(episode_id))
     except (ValueError, ShotDataError) as e:
         raise HTTPException(status_code=400, detail=f"Invalid shots.json: {e}")
     refs_bytes = None
@@ -1690,14 +1690,14 @@ def uploaded_shots_problems(episode_id: str) -> list[str]:
     without one a dry run uses the beatmap and a live run is refused by the workflow)."""
     from hfvg.cast_plan import cast_problems
     from hfvg.preflight import preflight_plans
-    from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.shot_data import ShotDataError, episode_profile, parse_shots
 
     path = paths.episode_dir(episode_id) / "shots.json"
     if not path.exists():
         return []
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        parse_shots(raw)
+        parse_shots(raw, episode_profile(episode_id))
     except (ValueError, ShotDataError) as e:
         return [f"invalid shots.json: {e}"]
     problems = [f"preflight: {e}" for e in preflight_plans(raw["shots"])["errors"]]
@@ -4571,6 +4571,8 @@ async def recompose_shot(
         raise HTTPException(status_code=409, detail=f"{len(refs)} refs > still model cap {cap}")
     from hfvg.workflows.episode_v2 import EpisodeWorkflowV2 as _EW
     meta_problem = _EW.recompose_meta_problem(request.shot_meta)
+    if not meta_problem and request.shot_meta and "flags" in request.shot_meta:
+        meta_problem = await asyncio.to_thread(_recompose_flags_problem, episode_id, request.shot_meta["flags"])
     if meta_problem:
         raise HTTPException(status_code=422, detail=f"invalid shot_meta: {meta_problem}")
     clip_model = "kling"
@@ -4590,7 +4592,10 @@ async def recompose_shot(
             raise HTTPException(status_code=422, detail=f"invalid clip_route: {route_problem}")
         clip_model = request.clip_route.get("model", clip_model)
     if request.shot_meta and shot_meta is not None:
-        shot_meta = {**shot_meta, **request.shot_meta}  # GAP-32: lint the NEW cast
+        merged = {**shot_meta, **request.shot_meta}  # GAP-32: lint the NEW cast
+        if "flags" in request.shot_meta:  # as the workflow merges them (recompose-meta-flags)
+            merged["flags"] = _EW.merged_recompose_flags(shot_meta, request.shot_meta)
+        shot_meta = merged
     still_prompt, sent_clip_prompt = request.prompt, request.clip_prompt
     if shot_meta is not None:
         # GAP-40: the paid submits inject the prompt kit's continuity locks; preflight (length) and lint
@@ -4641,6 +4646,15 @@ async def recompose_shot(
             "message": f"Recompose queued for {shot_id}; its still parks for /recompose/decision"}
 
 
+def _recompose_flags_problem(episode_id: str, flags: dict) -> str | None:
+    """Why a recompose's shot_meta.flags do not fit the episode's show profile (None: they do)."""
+    from hfvg.show_profile import ShowProfileError, recompose_flags_problem, resolve_show_profile
+    try:
+        return recompose_flags_problem(resolve_show_profile(episode_id), flags)
+    except ShowProfileError as e:
+        return f"the episode's show profile does not load: {e}"
+
+
 def _with_cast_clauses(still_prompt: str, shot_meta: dict | None) -> str:
     """A still prompt with the cast, props and no-text clauses the paid still submit adds from the
     plan (hfvg.activities.studio_generation), so a route's length check and lint see what is sent."""
@@ -4663,7 +4677,8 @@ def _recompose_lint_problems(episode_id: str, shot_id: str, still_prompt: str, c
     problems = [f"still: {p}" for p in lint_violations(still_prompt, shot_meta, kit)]
     problems += [f"clip: {p}" for p in clip_lint_violations(clip_prompt, shot_meta, kit)]
     for kind, prompt, model in (("still", still_prompt, None), ("clip", clip_prompt, clip_model)):
-        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=model, refs=refs, live=False)
+        rec = moderation_lint.evaluate(shot_id, prompt, shot_meta, kind=kind, model=model, refs=refs,
+                                       live=False, episode_id=episode_id)
         problems += [f"{kind} moderation: {v}" for v in rec.get("hard_violations", [])]
     return problems
 
@@ -5041,7 +5056,7 @@ def _adopt_reuse_fields(episode_id: str, shot_id: str, entry: dict) -> dict:
     The slot must be a reuse slot of the episode's edit plan, the entry id must match, and the entry's
     trim must keep the reuse slot's screen length (the edit timing does not move). Pure (reads files)."""
     from hfvg.edit_plan import load_edit_plan
-    from hfvg.shot_data import parse_shots
+    from hfvg.shot_data import episode_profile, parse_shots
     plan = load_edit_plan(episode_id) or {}
     reuse = (plan.get("reuse") or {}).get(shot_id)
     if not reuse:
@@ -5050,7 +5065,7 @@ def _adopt_reuse_fields(episode_id: str, shot_id: str, entry: dict) -> dict:
         raise HTTPException(status_code=422, detail=f"shot.id {entry.get('id')!r} does not match {shot_id}")
     clean = {k: v for k, v in entry.items() if k not in ("reuse", "pre_approved_still")}
     try:
-        parsed = parse_shots({"shots": [clean]})[shot_id]
+        parsed = parse_shots({"shots": [clean]}, episode_profile(episode_id))[shot_id]
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"invalid shot entry: {e}")
     trim = parsed.get("trim") or {}
@@ -6262,8 +6277,8 @@ async def lint_episode(
     else:
         try:
             import json
-            from hfvg.shot_data import parse_shots
-            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")))
+            from hfvg.shot_data import episode_profile, parse_shots
+            plans = parse_shots(json.loads(shots_json.read_text(encoding="utf-8")), episode_profile(episode_id))
         except Exception as e:
             issues.append(f"shots.json parse error: {str(e)}")
     
@@ -7201,6 +7216,7 @@ async def preflight_episode(
     validate_episode_id(episode_id)
     from hfvg.preflight import preflight_plans
     from hfvg.shot_data import ShotDataError, parse_shots
+    from hfvg.show_profile import ShowProfileError, resolve_show_profile
 
     if request and request.shots:
         shots = request.shots
@@ -7209,8 +7225,12 @@ async def preflight_episode(
         if not shots_path.exists():
             raise HTTPException(status_code=404, detail=f"No shots.json uploaded for {episode_id}")
         try:
+            profile = resolve_show_profile(episode_id)
+        except ShowProfileError:
+            profile = None  # reported under show_profile
+        try:
             raw = json.loads(shots_path.read_text(encoding="utf-8"))
-            parse_shots(raw)  # same validation as upload
+            parse_shots(raw, profile)  # same validation as upload
         except (ValueError, ShotDataError) as e:
             if not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token):
                 raise HTTPException(status_code=400, detail="Invalid shots.json")

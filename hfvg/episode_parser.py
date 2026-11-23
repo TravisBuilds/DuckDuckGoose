@@ -1,14 +1,24 @@
 """Episode parser for BRIEF/BEATMAP document format.
 
-Parses episode 3-style BEATMAP.md into shot plans for workflow execution.
+Parses episode 3-style BEATMAP.md into shot plans for workflow execution. What a character code in
+the Chars column stands for is show data (show profile ``beatmap.character_codes``, hfvg.show_profile;
+None: the legacy adapter's codes).
 """
 
 import re
-from typing import Any
 from pathlib import Path
+from typing import Any
+
+from hfvg.compat import legacy_show
 
 
-def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
+def _codes(profile) -> tuple[dict, str]:
+    if profile is None:
+        return legacy_show.CHARACTER_CODES, legacy_show.ROLE_PREFIX
+    return profile.character_codes, profile.role_prefix
+
+
+def parse_beatmap(beatmap_path: str | Path, profile=None) -> list[dict[str, Any]]:
     """
     Parse BEATMAP.md into shot list with metadata.
     
@@ -26,20 +36,23 @@ def parse_beatmap(beatmap_path: str | Path) -> list[dict[str, Any]]:
     - tags: list of tags for routing (wet, mud, pool, soak, bare, underwater, etc.)
     - is_handoff: bool (marked with ★)
     - has_end_frame: bool (marked with ⇥)
-    - duck_role: "host", "absent", or "present"
+    - the role keys of the show's character codes that write one (the legacy layout: the code's
+      role when it is in the row, else its ``absent`` value)
+    - roles / prompt_lead: the roles of the other codes in the row, and the lead
+      build_prompt_from_shot starts the prompt with (only when the row has such a code)
     """
-    return parse_beatmap_text(Path(beatmap_path).read_text(encoding="utf-8"))
+    return parse_beatmap_text(Path(beatmap_path).read_text(encoding="utf-8"), profile)
 
 
-def parse_beatmap_text(content: str) -> list[dict[str, Any]]:
+def parse_beatmap_text(content: str, profile=None) -> list[dict[str, Any]]:
     """parse_beatmap for BEATMAP.md content already in memory (draft checks)."""
     # A shot table with a header row (| # | ID | Screen ... | Model |) is read by its header and every
     # row is checked; only documents without one fall back to the legacy row regex.
-    shots = _parse_header_tables(content)
+    shots = _parse_header_tables(content, profile)
     if not shots:
-        return _legacy_rows(content)
+        return _legacy_rows(content, profile)
     seen = {s["shot_id"] for s in shots}
-    stray = [s["shot_id"] for s in _legacy_rows(content) if s["shot_id"] not in seen]
+    stray = [s["shot_id"] for s in _legacy_rows(content, profile) if s["shot_id"] not in seen]
     if stray:
         raise BeatmapFormatError(
             f"BEATMAP shot {stray[0]}: row is outside the shot table; keep every shot row directly under "
@@ -54,34 +67,30 @@ _LEGACY_ROW = re.compile(
     r'([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*([KS])')
 
 
-def _legacy_rows(content: str) -> list[dict[str, Any]]:
+def _legacy_rows(content: str, profile=None) -> list[dict[str, Any]]:
     return [
         _build_shot(
             int(match.group(1)), match.group(2).strip(), float(match.group(3)), float(match.group(4)),
             '⇥' in match.group(5), match.group(6).strip(), match.group(7).strip(), match.group(8).strip(),
-            match.group(9).strip(), match.group(10).strip(), match.group(13).strip(),
+            match.group(9).strip(), match.group(10).strip(), match.group(13).strip(), profile,
         )
         for match in _LEGACY_ROW.finditer(content)
     ]
 
 
 def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float, has_end_frame: bool,
-                room: str, tod: str, chars_raw: str, action: str, purpose: str, model: str) -> dict[str, Any]:
+                room: str, tod: str, chars_raw: str, action: str, purpose: str, model: str,
+                profile=None) -> dict[str, Any]:
     # Extract scene ID (letter prefix)
     scene_id = shot_id[0]
     
     # Parse characters
     # Format examples: "H Y K", "D(T)", "K(tuque) D(B)", "–"
     characters = []
-    duck_role = "absent"
     
     if chars_raw != '–':
         # Match character codes: multi-letter + optional digit (e.g., B, W, M1, M2, AG)
-        char_codes = re.findall(r'([A-Z]+\d*)(?:\([^)]*\))?', chars_raw)
-        for code in char_codes:
-            characters.append(code)
-            if code == 'D':
-                duck_role = "host"  # Duck present means host role
+        characters = re.findall(r'([A-Z]+\d*)(?:\([^)]*\))?', chars_raw)
     
     # Detect tags for model routing
     tags = []
@@ -124,8 +133,18 @@ def _build_shot(shot_num: int, shot_id: str, screen_time: float, gen_time: float
         "tags": tags,
         "is_handoff": is_handoff,
         "has_end_frame": has_end_frame,
-        "duck_role": duck_role,
     }
+    codes, prefix = _codes(profile)
+    roles, lead = [], []
+    for code, spec in codes.items():
+        if spec.key:
+            shot[spec.key] = spec.role if code in characters else spec.absent
+        elif code in characters and spec.role and spec.role not in roles:
+            roles.append(spec.role)
+            lead.append(prefix.format(role=spec.role, slug=spec.slug))
+    if roles:
+        shot["roles"] = roles
+        shot["prompt_lead"] = ", ".join(dict.fromkeys(lead))
     
     return shot
 
@@ -167,7 +186,7 @@ def _cells(line: str) -> list[str]:
     return [c.strip() for c in line.strip().strip("|").split("|")]
 
 
-def _parse_header_tables(content: str) -> list[dict[str, Any]]:
+def _parse_header_tables(content: str, profile=None) -> list[dict[str, Any]]:
     """Shot tables located by their header (| # | ID | Screen ... | Model |), any column order/extra
     columns. Rows marked REUSE in the screen cell are reused locked clips (hfvg.edit_plan), not
     generated, and are skipped. Any other row whose cells do not read (see SCREEN_CELL_FORMAT and
@@ -217,7 +236,7 @@ def _parse_header_tables(content: str) -> list[dict[str, Any]]:
                     shots.append(_build_shot(
                         int(number), sid, *timing,
                         cells[idx["room"]], cells[idx["tod"]], cells[idx["chars"]], cells[idx["action"]],
-                        cells[idx["purpose"]], model,
+                        cells[idx["purpose"]], model, profile,
                     ))
                 continue
         i += 1
@@ -228,24 +247,29 @@ def build_prompt_from_shot(shot: dict[str, Any]) -> str:
     """
     Build a generation prompt from beatmap shot metadata.
     
+    Runs in workflow code: pure, and its output for a shot of the legacy layout (its role key, no
+    ``prompt_lead``) never changes.
+
     Args:
-        shot: Shot dict with fields like action, characters, duck_role, room, tod, etc.
+        shot: Shot dict with fields like action, characters, prompt_lead, room, tod, etc.
     
     Returns:
         A descriptive prompt string for image/video generation
     """
     parts = []
     
-    # Add duck role if present
-    duck_role = shot.get("duck_role")
-    if duck_role:
-        parts.append(f"{duck_role} duck")
+    # The role lead (the show's beatmap codes), if any
+    lead = shot.get("prompt_lead")
+    if lead is None:
+        lead = legacy_show.prompt_lead(shot)
+    if lead:
+        parts.append(lead)
     
     # Add characters
     characters = shot.get("characters", [])
     if characters:
         chars_str = ", ".join(characters)
-        if duck_role:
+        if lead:
             parts.append(f"with {chars_str}")
         else:
             parts.append(chars_str)

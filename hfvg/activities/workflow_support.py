@@ -14,6 +14,7 @@ from hfvg.episode_parser import parse_beatmap as _parse_beatmap
 from hfvg.gates import load_policy as _load_policy, GatePolicy
 from hfvg.shot_data import (
     _read_json,
+    episode_profile,
     load_episode_options,
     load_shot_plans,
     merge_into_shots,
@@ -89,12 +90,14 @@ async def parse_beatmap_activity(
 
 
 def _parse_and_plan(beatmap_path: str | None, episode_id: str | None, require_shot_data: bool) -> dict:
+    # the beatmap's character codes are the episode's show data (no episode: the legacy codes)
+    profile = episode_profile(episode_id) if episode_id else None
     if beatmap_path:
-        shots = _parse_beatmap(beatmap_path)
+        shots = _parse_beatmap(beatmap_path, profile)
     else:
         # Use synthetic fixture for dry-run
         fixture_path = Path(__file__).parent.parent.parent / "tests" / "fixtures" / "sample_beatmap.md"
-        shots = _parse_beatmap(str(fixture_path))
+        shots = _parse_beatmap(str(fixture_path), profile)
 
     # parse_beatmap returns a list of shots; wrap in dict for workflow
     shots = shots if isinstance(shots, list) else []

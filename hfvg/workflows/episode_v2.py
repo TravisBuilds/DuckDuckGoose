@@ -2922,18 +2922,22 @@ class EpisodeWorkflowV2:
                 and any(k in err for k in cls.PRE_SPEND_REFUSALS))
 
     # GAP-32: the only shot_meta keys a recompose may change (a new composition can change the cast in
-    # frame, e.g. one character alone -> two side by side); lint, headcount and clip QC follow the patch
-    RECOMPOSE_META_KEYS = ("count", "characters", "duck")
+    # frame, e.g. one character alone -> two side by side); lint, headcount and clip QC follow the patch.
+    # The third key is the legacy adapter's flag-figure key; "flags" carries a show's declared shot
+    # flags (hfvg.show_profile: the API checks the names against the episode's profile, this validator
+    # only the shape).
+    RECOMPOSE_META_KEYS = ("count", "characters", "duck", "flags")
+    RECOMPOSE_FLAG_TYPES = (bool, str, int)
 
     @classmethod
     def recompose_meta_problem(cls, shot_meta: dict | None) -> str | None:
-        """GAP-32: validate shot_meta keys for a recompose (only count, characters, duck allowed)."""
+        """GAP-32: validate shot_meta keys for a recompose (only RECOMPOSE_META_KEYS allowed)."""
         if shot_meta is None:
             return None
         if not isinstance(shot_meta, dict):
             return "shot_meta must be an object"
         # Empty dict is allowed (explicit no-change)
-        allowed = {"count", "characters", "duck"}
+        allowed = set(cls.RECOMPOSE_META_KEYS)
         bad = set(shot_meta.keys()) - allowed
         if bad:
             return f"shot_meta keys {sorted(bad)} not allowed; may only change {sorted(allowed)}"
@@ -2952,7 +2956,19 @@ class EpisodeWorkflowV2:
             d = shot_meta["duck"]
             if not isinstance(d, bool):
                 return "shot_meta.duck must be a boolean"
+        if "flags" in shot_meta:
+            flags = shot_meta["flags"]
+            if not isinstance(flags, dict) or not all(
+                    isinstance(k, str) and k.strip() and isinstance(v, cls.RECOMPOSE_FLAG_TYPES)
+                    for k, v in flags.items()):
+                return "shot_meta.flags must be an object of boolean, string or integer values"
         return None
+
+    @staticmethod
+    def merged_recompose_flags(base_meta: dict | None, patch: dict) -> dict:
+        """A recompose's shot flags: the planned ``shot_meta.flags`` with the patch's flags over them."""
+        planned = (base_meta or {}).get("flags")
+        return {**(planned if isinstance(planned, dict) else {}), **patch["flags"]}
 
     # GAP-45: an owner-ordered clip route for the new composition (model and/or Seedance resolution)
     CLIP_ROUTE_KEYS = ("model", "seedance_resolution", "duration_s")  # GAP-64: duration_s
@@ -3212,6 +3228,9 @@ class EpisodeWorkflowV2:
         })
         if shot_meta:  # GAP-32: the new composition's cast (lint, headcount and clip QC use it)
             plan["shot_meta"] = {**(base.get("shot_meta") or {}), **shot_meta}
+            if "flags" in shot_meta and workflow.patched("recompose-meta-flags"):
+                # the patched flags over the planned ones (histories before it never sent "flags")
+                plan["shot_meta"]["flags"] = self.merged_recompose_flags(base.get("shot_meta"), shot_meta)
             plan["recompose"]["shot_meta_patch"] = dict(shot_meta)
         if self.cast_clause_revisions and plan.get("shot_meta"):  # the cast words in force (resync)
             plan["shot_meta"] = self._revised_cast_meta(plan["shot_meta"])
