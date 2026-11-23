@@ -1,7 +1,8 @@
 """The QC judges inside the real ShotWorkflow (docs/QC-JUDGES.md). The still review gets the judges'
 rubric (the still's prompt, references, cast and local file), and a judge's FAIL is never re-rolled
-automatically: the shot fails, and only the bounded ``retry_shot`` makes another still (the QC retry
-loop removed in 10e9fd2 stays gone). Every activity is stubbed by name: no network, no spend."""
+automatically: the still waits at G2 for a person, and only the bounded ``retry_shot`` makes another
+still (the QC retry loop removed in 10e9fd2 stays gone). Every activity is stubbed by name: no
+network, no spend."""
 import asyncio
 import base64
 import json
@@ -126,18 +127,22 @@ async def test_a_judged_fail_is_rerolled_only_by_retry_shot_and_the_review_gets_
                 st, ok = await wait(h, lambda s: s.get("current_gate") == "G1_SHOT_PLAN")
                 assert ok, st
                 await h.execute_update(EpisodeWorkflowV2.approve_g1_shot_plan)
-                st, ok = await wait(h, lambda s: s.get("failed_shots"))
-                assert ok, f"a judged FAIL never failed the shot: {st}"
+                st, ok = await wait(h, lambda s: "A02" in (s.get("stills_needing_decision") or {}))
+                assert ok, f"a judged FAIL never put the still before a person at G2: {st}"
+                assert not st.get("failed_shots"), st["failed_shots"]
+                assert st["still_flags"]["A02"]["qc_failed"]["reason"] == JUDGE_FAIL, st["still_flags"]
 
                 _, url, rubric = reviews()[0]
                 assert url == "fake://still-ep05-A02-v1.jpg"
                 assert rubric == {"prompt": PROMPT, "refs": [], "shot_meta": META,
                                   "still_path": str(still_dir / "A02_still_v1.png")}, rubric
 
-                # Workflow time passes with the shot failed: nothing re-rolls it on its own
+                # Workflow time passes with the judge-failed still at G2: nothing re-rolls or passes it
                 await env.sleep(timedelta(minutes=30))
                 assert len(stills()) == 1 and len(reviews()) == 1, log
                 assert not any(e[0] == "submit_clip" for e in log), log
+                st, _ = await wait(h, lambda s: True)
+                assert "A02" in st["stills_needing_decision"] and not st["approvals"]["g2_scene_stills"], st
 
                 r = await h.execute_update(EpisodeWorkflowV2.retry_shot, args=["A02"])
                 assert r["status"] == "queued", r
@@ -151,15 +156,17 @@ async def test_a_judged_fail_is_rerolled_only_by_retry_shot_and_the_review_gets_
                 st, ok = await wait(h, lambda s: not s.get("pending_retries"), budget=30.0)
                 assert ok, f"the retried still passed review but the retry never finished: {st}"
                 assert len(stills()) == 2, f"a passing review re-rolled again: {log}"
+                assert st["stills_needing_decision"] == {}, "the passing re-roll is the shot's still now"
 
-                # A history recorded with the patch carries its marker and replays on this code
+                # A history recorded with the patches carries their markers and replays on this code
                 history = await env.client.get_workflow_handle("ep05-shot-A02").fetch_history()
                 assert "qc-still-rubric" in _patch_markers(history), _patch_markers(history)
+                assert "qc-fail-parks-at-g2-v1" in _patch_markers(history), _patch_markers(history)
                 replay = await Replayer(workflows=PRODUCTION_WORKFLOWS,
                                         data_converter=temporal_data_converter).replay_workflow(history)
                 assert replay.replay_failure is None
             finally:
-                for wid in ("ep05", "ep05-shot-A02-retry1"):
+                for wid in ("ep05", "ep05-shot-A02", "ep05-shot-A02-retry1"):
                     try:
                         await env.client.get_workflow_handle(wid).terminate("test done")
                     except Exception:

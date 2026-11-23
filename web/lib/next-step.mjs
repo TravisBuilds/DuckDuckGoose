@@ -82,13 +82,13 @@ const READY = new Set(['done', 'completed']);
 
 /**
  * The scene pictures at G2: how many wait for the creator's decision (ready or failed, no decision
- * yet) and how many are still being made. Uses the shot states when the page has them, else the
- * run state's shot count.
+ * yet, or flagged by the picture check since the last one: needs_decision) and how many are still
+ * being made. Uses the shot states when the page has them, else the run state's shot count.
  */
 export function stillsToReview(state, shots) {
   const decisions = state?.shot_decisions ?? {};
   if (Array.isArray(shots) && shots.length > 0) {
-    const open = shots.filter((s) => !decisions[s.shot_id]);
+    const open = shots.filter((s) => !decisions[s.shot_id] || s.needs_decision);
     const making = open.filter((s) => !s.pre_approved && !READY.has(s.still_status) && s.still_status !== 'failed');
     return { review: open.length - making.length, making: making.length, total: shots.length };
   }

@@ -948,7 +948,8 @@ export default function EpisodePage({ params }: { params: Promise<{ id: string }
   );
 }
 
-function shotList(shotStates: Record<string, { still_status?: string; pre_approved?: boolean }> | null) {
+function shotList(shotStates: Record<string, { still_status?: string; pre_approved?: boolean; needs_decision?: string | null }> | null) {
   if (!shotStates) return null;
-  return Object.entries(shotStates).map(([shot_id, s]) => ({ shot_id, still_status: s.still_status, pre_approved: s.pre_approved }));
+  return Object.entries(shotStates).map(([shot_id, s]) => ({ shot_id, still_status: s.still_status, pre_approved: s.pre_approved,
+    needs_decision: s.needs_decision ?? null }));
 }

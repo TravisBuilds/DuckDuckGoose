@@ -51,6 +51,9 @@ ASSEMBLY_RIFE_CAP_MIN = 180
 # (GAP-69), so one fixed id would answer False for every later retry of a run that replayed a
 # retry recorded without it.
 RETRY_SHOT_LIMIT_PATCH = "retry-shot-limit-in-validator"
+# At G2 approval, a judge-failed still a person kept gets keep_qc_failed_still before stills_approved
+# (docs/QC-JUDGES.md); a run released before that existed replays without the signal.
+QC_FAIL_KEEP_PATCH = "g2-keep-qc-failed-still-v1"
 
 
 def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
@@ -168,6 +171,10 @@ class EpisodeWorkflowV2:
         self.still_child_status: dict[str, str] = {}     # child workflow id -> "running" / final status
         self.still_selections: dict[str, dict] = {}      # shot -> {version, workflow_id, reason, previous}
         self.still_selection_log: list[dict] = []
+        # Stills the QC judge failed, each waiting at G2 for a person (child workflow id -> {shot_id,
+        # version, reason, issues, decided}). G2 approval is refused while the kept still of a shot
+        # carries a flag no one decided on since it was raised (_undecided_still_flags).
+        self.qc_failed_stills: dict[str, dict] = {}
         # GAP-28: corrected package re-synced at G2 (text fields only; see hfvg.plan_resync)
         self._beatmap_path: str | None = None
         self._dry_run: bool = True
@@ -808,6 +815,8 @@ class EpisodeWorkflowV2:
         
         # Clear hold state after approval (shots will be released to clips)
         self.state.shots_on_hold = []
+        if self.qc_failed_stills and workflow.patched(QC_FAIL_KEEP_PATCH):
+            await self._keep_qc_failed_stills()
         
         # ================================================================
         # Generate Clips
@@ -1207,7 +1216,77 @@ class EpisodeWorkflowV2:
                 f"Wait for the retry still to complete and be reviewed first.",
                 non_retryable=True
             )
-    
+        # A flagged still (judge FAIL) is never approved by G2 on its own: a person decides on it first
+        undecided = self._undecided_still_flags()
+        if undecided:
+            raise ApplicationError(
+                "Cannot approve G2 before a person decides on "
+                + "; ".join(f"{sid} ({why})" for sid, why in sorted(undecided.items()))
+                + ". Keep the still (approve the shot or select its version), make it again or reject it.",
+                non_retryable=True,
+            )
+
+    def _current_still_wid(self, shot_id: str) -> str | None:
+        """The workflow id of the shot's current child (the still G2 keeps for it)."""
+        return getattr(self.shot_results.get(shot_id), "id", None)
+
+    def _still_flags(self, workflow_id: str | None) -> dict[str, dict]:
+        """The flags on one still child's still a person must decide on: {"qc_failed": {...}}."""
+        flags = {}
+        if workflow_id in self.qc_failed_stills:
+            flags["qc_failed"] = self.qc_failed_stills[workflow_id]
+        return flags
+
+    def _still_decided(self, workflow_id: str | None) -> None:
+        """A person decided on this child's still (kept, selected or rejected it): its flags are answered."""
+        for flag in self._still_flags(workflow_id).values():
+            flag["decided"] = True
+
+    def _undecided_still_flags(self) -> dict[str, str]:
+        """{shot_id: why} for each shot whose kept still (current child, still waiting at G2) carries a
+        flag no person decided on since it was raised."""
+        why_for = {"qc_failed": "the QC judge failed its still"}
+        out = {}
+        for shot_id in self.shot_results:
+            wid = self._current_still_wid(shot_id)
+            if wid is None or self.still_child_status.get(wid, "running") != "running":
+                continue
+            open_flags = [why_for[k] for k, f in self._still_flags(wid).items() if not f.get("decided")]
+            if open_flags:
+                out[shot_id] = " and ".join(open_flags)
+        return out
+
+    @workflow.signal
+    def still_qc_failed(self, info: dict):
+        """From a G2 still child: the QC judge FAILED its still, which now waits at G2 for a person (keep
+        it with approve_shot or select_still_version; or retry_shot / reject_shot). A decision made on
+        the shot before this verdict does not count for it."""
+        info = info if isinstance(info, dict) else {}
+        wid, shot_id = str(info.get("workflow_id") or ""), str(info.get("shot_id") or "")
+        if not wid or not shot_id:
+            return
+        issues = [str(i) for i in info.get("issues") or []][:10]
+        self.qc_failed_stills[wid] = {"shot_id": shot_id, "version": info.get("version"),
+                                      "reason": str(info.get("reason") or "; ".join(issues)),
+                                      "issues": issues, "decided": False}
+        workflow.logger.info(f"G2: the QC judge failed {shot_id} v{info.get('version')} ({wid}); waiting for a person")
+
+    async def _keep_qc_failed_stills(self) -> None:
+        """At G2 approval: each shot that keeps a judge-failed still (a person approved or selected it)
+        tells its child, before stills_approved, so the child takes it to a clip."""
+        for shot_id in self.shot_results:
+            wid = self._current_still_wid(shot_id)
+            flag = self.qc_failed_stills.get(wid or "")
+            if (not flag or not flag.get("decided") or self.state.shot_decisions.get(shot_id) == "rejected"
+                    or self.still_child_status.get(wid, "running") != "running"):
+                continue
+            try:
+                await self.shot_results[shot_id].signal("keep_qc_failed_still")
+            except ApplicationError as e:
+                if e.type != "ExternalWorkflowExecutionNotFound":
+                    raise
+                workflow.logger.info(f"Could not tell {wid} its judge-failed still is kept (already finished): {e}")
+
     def _reject_problem(self, shot_id: str) -> str | None:
         """Why reject_shot(shot_id) is not allowed right now (None = allowed). No side effects."""
         if self.state.current_gate != "G2_SCENE_STILLS":
@@ -1241,6 +1320,7 @@ class EpisodeWorkflowV2:
             raise ApplicationError(f"Cannot reject {shot_id}: {problem}", non_retryable=True)
         self.state.shot_decisions[shot_id] = "rejected"
         self.rejection_reasons[shot_id] = reason or ""
+        self._still_decided(self._current_still_wid(shot_id))
         workflow.logger.info(f"Shot {shot_id} rejected at G2: {reason}")
         
         return {
@@ -1267,6 +1347,7 @@ class EpisodeWorkflowV2:
             raise ApplicationError(f"Cannot approve {shot_id}: {problem}", non_retryable=True)
         self.state.shot_decisions[shot_id] = "approved"
         self.rejection_reasons.pop(shot_id, None)
+        self._still_decided(self._current_still_wid(shot_id))
         workflow.logger.info(f"Shot {shot_id} approved at G2")
         return {"success": True, "shot_id": shot_id, "action": "approved",
                 "message": f"Shot {shot_id} approved (goes to clips when G2 is approved)"}
@@ -1363,6 +1444,7 @@ class EpisodeWorkflowV2:
             self.rejection_reasons.pop(shot_id, None)
         self.still_selections[shot_id] = {"version": version, "workflow_id": wid, "reason": reason,
                                           "previous_version": previous}
+        self._still_decided(wid)
         self.still_selection_log.append({"shot_id": shot_id, "version": version, "workflow_id": wid,
                                          "previous_version": previous, "reason": reason})
         workflow.logger.info(f"G2: {shot_id} keeps still v{version} ({wid}) instead of v{previous}: {reason}")
@@ -1595,9 +1677,20 @@ class EpisodeWorkflowV2:
             out[shot_id] = {
                 "current_version": self._current_still_version(shot_id),
                 "selection": self.still_selections.get(shot_id),
-                "versions": [{**r, "status": self.still_child_status.get(r["workflow_id"], "running")}
+                "versions": [{**r, "status": self.still_child_status.get(r["workflow_id"], "running"),
+                              "flags": sorted(self._still_flags(r["workflow_id"]))}
                              for r in rows],
             }
+        return out
+
+    def _still_flags_view(self) -> dict[str, dict]:
+        """Per shot whose kept still carries flags: {"workflow_id", <flag>: {..., "decided"}}."""
+        out = {}
+        for shot_id in self.shot_results:
+            wid = self._current_still_wid(shot_id)
+            flags = self._still_flags(wid)
+            if flags:
+                out[shot_id] = {"workflow_id": wid, **{k: dict(v) for k, v in flags.items()}}
         return out
 
     @workflow.query
@@ -3587,6 +3680,8 @@ class EpisodeWorkflowV2:
             "final_cut_rejections": [dict(r) for r in self.final_cut_rejections],
             "shot_workflow_ids": {k: h.id for k, h in self.shot_results.items()},
             "still_selections": dict(self.still_selections),
+            "still_flags": self._still_flags_view(),
+            "stills_needing_decision": self._undecided_still_flags(),
             "clip_plan_updates": {k: sorted(v) for k, v in self.clip_plan_updates.items()},
             "resync_log": [dict(r) for r in self.resync_log],
             "replan_log": [dict(r) for r in self.replan_log],

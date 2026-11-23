@@ -77,6 +77,10 @@ export interface ShotState {
   moderation_escalation?: unknown;
   pre_approved?: boolean;
   reason?: string;
+  /** The QC judge failed the picture the shot keeps; reason is null for who may not see the cast. */
+  qc_failed?: { reason: string | null; decided: boolean } | null;
+  /** Why the shot's picture waits for a decision before the pictures can be approved. */
+  needs_decision?: string | null;
 }
 /** A row of GET /api/episodes/{id}/shots (the studio database). */
 export interface ShotRow {
@@ -466,6 +470,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
   const rows = Object.fromEntries(shots.map((s) => [s.shot_id, s]));
   const failed = state ? failedShotIds(state) : [];
   const started = atG2 || approvedAll || ids.length > 0;
+  const undecided = ids.filter((sid) => shotStates?.[sid]?.needs_decision);
 
   // a redo is paid for: its price (and the note that goes with it) is shown before anything is made
   const priceRedo = async (sid: string, note: string) => {
@@ -538,7 +543,8 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
             const decision = state?.shot_decisions[sid];
             const retrying = Boolean(state?.pending_retries.includes(sid));
             const status = ss?.still_status ?? state?.shot_outcomes[sid]?.status ?? null;
-            const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation), allApproved: approvedAll });
+            const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation),
+              allApproved: approvedAll, flagged: Boolean(ss?.needs_decision) });
             const description = row?.beat_purpose || (castHidden ? '' : row?.prompt ?? '');
             const note = redoNote(reasons[sid], decision === 'rejected' ? state?.rejection_reasons[sid] : undefined);
             const canDecide = atG2 && !ended && canAct;
@@ -569,7 +575,13 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                     </ul>
                   </div>
                 )}
-                {!castHidden && ss?.still_error && <p className="text-xs text-red-700">{ss.still_error}</p>}
+                {ss?.qc_failed ? (
+                  <p className="text-xs text-amber-800" data-testid={`qc-failed-${sid}`}>
+                    {ss.qc_failed.reason ? `The picture check flagged this picture: ${ss.qc_failed.reason}`
+                      : 'The picture check flagged this picture.'}
+                    {ss.needs_decision ? ' Approve it if it looks right, or make it again.' : ''}
+                  </p>
+                ) : !castHidden && ss?.still_error && <p className="text-xs text-red-700">{ss.still_error}</p>}
                 {canDecide && (
                   <div className="mt-auto space-y-2">
                     <button data-testid={`approve-shot-${sid}`} disabled={busy || decision === 'approved'} className={`${btnPrimary} w-full`}
@@ -599,7 +611,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                       }}>
                       Ask for a redo
                     </button>
-                    {(failed.includes(sid) || decision === 'rejected') && (
+                    {(failed.includes(sid) || decision === 'rejected' || Boolean(ss?.qc_failed)) && (
                       <button data-testid={`retry-shot-${sid}`} disabled={busy || retrying || pricing !== null}
                         className={`${btnSecondary} w-full`} onClick={() => priceRedo(sid, note)}>
                         {pricing === sid ? 'Checking the price…' : 'Make this picture again'}
@@ -628,14 +640,16 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
 
       {atG2 && !ended && canAct && (
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
-          <button data-testid="approve-g2" disabled={busy} className={btnPrimary}
+          <button data-testid="approve-g2" disabled={busy || undecided.length > 0} className={btnPrimary}
             onClick={() => act(() => postJson(`/api/episodes/${episodeId}/approve`, { gate_id: 'g2_scene_stills' }),
               'Scene pictures approved. Making the clips now.', "Couldn't approve the scene pictures")}>
             Approve all scene pictures
           </button>
           <span className="text-sm text-gray-700" data-testid="approve-g2-line">
-            {clips ? `Approve once every picture has your decision. Then the clips are made, ${clips}.`
-              : 'Approve once every picture has your decision.'}
+            {undecided.length > 0
+              ? `The picture check flagged ${undecided.join(', ')}: approve, make again or ask for a redo of each first.`
+              : clips ? `Approve once every picture has your decision. Then the clips are made, ${clips}.`
+                : 'Approve once every picture has your decision.'}
           </span>
         </div>
       )}

@@ -345,7 +345,8 @@ async def approve_g2_shots(
     G-GATE-1: approval is per shot. Rejected shots (``rejected_shot_ids`` from the workflow's
     per-shot decisions, or rows already marked 'rejected' by the reject API) and failed/blocked
     shots are never approved; a rejected id is (re)marked 'rejected' so the DB matches the workflow.
-    Real still statuses at G2 are 'still_complete' / 'needs_review' (record_shot_result).
+    Real still statuses at G2 are 'still_complete' / 'needs_review' (record_shot_result), and
+    'qc_failed' for a still the QC judge failed, which only a person's decision approves.
 
     Args:
         episode_id: Episode ID
@@ -373,6 +374,7 @@ async def approve_g2_shots(
                  AND still_url IS NOT NULL 
                  AND still_url != ''
                  AND status NOT IN ('rejected', 'failed', 'blocked', 'approved')
+                 AND status != 'qc_failed'
                  {f"AND shot_id NOT IN ({exclude})" if rejected else ""}""",
             (episode_id, *rejected),
         )

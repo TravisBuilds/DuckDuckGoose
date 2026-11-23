@@ -3918,6 +3918,7 @@ async def approve_still(
 # Mark approve_still to allow members
 approve_still.allow_members = True
 
+
 STUDIO_UPDATING = "The studio is updating. Try again in a minute."
 
 
@@ -7487,6 +7488,8 @@ async def get_shot_states(
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error querying workflow: {e}")
     cast_hidden = not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
+    flags_of = state.get("still_flags") or {}
+    undecided = state.get("stills_needing_decision") or {}
     out: dict[str, dict] = {}
     for shot_id, wf_id in sorted((state.get("shot_workflow_ids") or {}).items()):
         try:
@@ -7494,6 +7497,8 @@ async def get_shot_states(
         except Exception as e:
             out[shot_id] = {"available": False, "workflow_id": wf_id, "reason": str(e)[:200]}
             continue
+        flags = flags_of.get(shot_id) or {}
+        qc_failed = flags.get("qc_failed")
         moderation = child.get("moderation") or {}
         escalation = child.get("moderation_escalation")
         if cast_hidden and escalation:
@@ -7511,6 +7516,11 @@ async def get_shot_states(
             "moderation_escalation": escalation,
             "pre_approved": bool(child.get("pre_approved")),
             "moderation_lint": {} if cast_hidden else child.get("moderation_lint") or {},
+            # The QC judge failed the kept still: a person keeps it (approve / select), makes it again or
+            # rejects it before G2. The judge's words can quote the prompt, so cast_hidden drops them.
+            "qc_failed": ({"reason": None if cast_hidden else qc_failed.get("reason"),
+                           "decided": bool(qc_failed.get("decided"))} if qc_failed else None),
+            "needs_decision": undecided.get(shot_id),
         }
     return {"episode_id": episode_id, "shots": out, "cast_hidden": cast_hidden}
 

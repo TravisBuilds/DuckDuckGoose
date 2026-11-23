@@ -8,7 +8,8 @@ with `qc_fail_if` conditions waits for a person).
 **Rule for every judge:** a judge that is missing, unsure, refused by the budget or the balance gate,
 timed out, broken or answering nonsense gives **NEEDS_REVIEW** (a person decides), never PASS.
 `DRY_RUN` makes no model call. The judges never re-roll anything: a FAIL is re-rolled only through
-the bounded `retry_shot` / `retry_clip`.
+the bounded `retry_shot` / `retry_clip`. Nor does a FAIL ever pass on its own: a failed still waits at
+G2 for a person (a).
 
 ## Turn it on
 
@@ -47,10 +48,18 @@ answer that is checked before use (a malformed answer is NEEDS_REVIEW), and the 
   `ShotWorkflow` sends them in the rubric behind `workflow.patched("qc-still-rubric")`; a run parked
   at review before that patch keeps its empty rubric, which is NEEDS_REVIEW.
 - **Answers:** pass, fail (naming the issues) or unsure, with a confidence.
-- **Decides:** confidence below 0.7, or unsure: NEEDS_REVIEW. Fail: FAIL with `escalate: false`, so
-  the shot ends `failed` with the judge's reasons and is re-rolled through `retry_shot`. Pass: the
+- **Decides:** confidence below 0.7, or unsure: NEEDS_REVIEW. Fail: FAIL with `escalate: false`: the
+  still waits at G2 for a person, marked judge-failed with the judge's reasons (DB status
+  `qc_failed`, `qc_failed` and `needs_decision` in `GET /shot-states`). G2 approval is refused until
+  a person decides on it: keep it (approve the shot or select its version; it is then animated like
+  any kept still), make it again (`retry_shot`) or reject it. A decision made before the verdict
+  does not count, and G2 approval alone never animates it. Pass: the
   identity gate (d) for each locked character, worst result wins; PASS is recorded as
   `still_complete`. The episode checks (episode id, live mode, G1.08) still run first.
+- **Replay:** the wait is behind `workflow.patched("qc-fail-parks-at-g2-v1")` (and the parent's keep
+  signal behind `"g2-keep-qc-failed-still-v1"`): a shot a FAIL ended before keeps that ending, and is
+  made again through `retry_shot`. A canary still and a recompose still end `failed` on a FAIL, as
+  before.
 
 ### b. Character and animal counter (`AnimalCounter`)
 
@@ -90,8 +99,8 @@ answer that is checked before use (a malformed answer is NEEDS_REVIEW), and the 
   call per character, which scores face, hair or fur, colours, outfit and proportions 0 (on model),
   1 (minor) or 2 (drift).
 - **Decides:** detector or judge confidence below 0.6, or a declared character not found:
-  NEEDS_REVIEW. A sign at 2, or minor scores adding up to 3: FAIL, re-rolled through `retry_shot` /
-  `retry_clip`. Otherwise the judge's own verdict. The worst frame and the worst character win.
+  NEEDS_REVIEW. A sign at 2, or minor scores adding up to 3: FAIL (a still's waits at G2 as in (a)),
+  re-rolled through `retry_shot` / `retry_clip`. Otherwise the judge's own verdict. The worst frame and the worst character win.
 - The duck host's rules (bill, head, neck ring and body; tuque and vest; the tuft in "B" shots; the
   0.12 height floor) are one configured profile of the same gate (`DuckIdentityGate`), which the
   pipeline does not call, as before; a duck host that is a locked cast character is checked like any
