@@ -9,6 +9,10 @@ end frame/aspect/resolution) may not, because the G1 plan, estimates and refs we
 
 plan_replan is the G1 counterpart (before approval): besides the text fields, the shots' cast, props
 and place may change, with the refs and shot_meta keys they plan to; the rest stays as it was parsed.
+
+With ``cast_revisions`` a G2 resync also takes a revised cast lock (hfvg.cast_store
+revise_locked_version): a shot_meta whose only change is the words (clause) of locked cast entries,
+the same characters, versions and names, so the refs and the plan approved at G1 stay as they were.
 """
 from __future__ import annotations
 
@@ -24,8 +28,10 @@ REPLAN_FIELDS = TEXT_FIELDS + ("shot_meta", "ref_keys", "refs", "missing_refs")
 REPLAN_FIXED_FIELDS = ("trim", "tags", "pre_approved_still")
 
 
-def plan_resync(current_shots: list[dict], new_shots: list[dict]) -> dict:
-    """{"changes": {shot_id: {field: new value}}, "problems": [...]} (problems = refuse the resync)."""
+def plan_resync(current_shots: list[dict], new_shots: list[dict], *, cast_revisions: bool = False) -> dict:
+    """{"changes": {shot_id: {field: new value}}, "problems": [...]} (problems = refuse the resync).
+    With cast_revisions, a shot_meta change that only rewords locked cast entries is a change too,
+    listed in "cast_revisions": {shot_id: [{character, version, name, before, after}]}."""
     cur = {s["shot_id"]: s for s in current_shots or []}
     new = {s["shot_id"]: s for s in new_shots or []}
     problems: list[str] = []
@@ -34,9 +40,14 @@ def plan_resync(current_shots: list[dict], new_shots: list[dict]) -> dict:
         problems.append(f"shot set changed (added: {', '.join(added) or '-'}; removed: "
                         f"{', '.join(removed) or '-'}); that needs a new G1 plan")
     changes: dict[str, dict] = {}
+    revised: dict[str, list[dict]] = {}
     for sid in sorted(set(cur) & set(new)):
         c, n = cur[sid], new[sid]
+        reworded = (cast_clause_revisions(c.get("shot_meta"), n.get("shot_meta"))
+                    if cast_revisions and c.get("shot_meta") != n.get("shot_meta") else None)
         for f in FIXED_FIELDS:
+            if f == "shot_meta" and reworded:
+                continue
             if c.get(f) != n.get(f):
                 problems.append(f"{sid}: {f} changed (structural; needs a new G1 plan)")
         cp, np_ = c.get("params") or {}, n.get("params") or {}
@@ -44,11 +55,44 @@ def plan_resync(current_shots: list[dict], new_shots: list[dict]) -> dict:
             if cp.get(p) != np_.get(p):
                 problems.append(f"{sid}: params.{p} changed {cp.get(p)!r} -> {np_.get(p)!r} (needs a new G1 plan)")
         ch = {f: n.get(f) for f in TEXT_FIELDS if c.get(f) != n.get(f)}
+        if reworded:
+            ch["shot_meta"] = n.get("shot_meta")
+            revised[sid] = reworded
         if "prompt" in ch and not str(ch["prompt"] or "").strip():
             problems.append(f"{sid}: new prompt is empty")
         if ch:
             changes[sid] = ch
-    return {"changes": changes, "problems": problems}
+    out = {"changes": changes, "problems": problems}
+    if cast_revisions:
+        out["cast_revisions"] = revised
+    return out
+
+
+def cast_clause_revisions(current_meta: dict | None, new_meta: dict | None) -> list[dict] | None:
+    """The locked cast entries whose words changed from current_meta to new_meta, when that is the
+    only change (the same entries in the same order, each with the same character, version, name and
+    lock); None when anything else differs or nothing does."""
+    if not isinstance(current_meta, dict) or not isinstance(new_meta, dict):
+        return None
+    cur_cast, new_cast = current_meta.get("cast"), new_meta.get("cast")
+    if not isinstance(cur_cast, list) or not isinstance(new_cast, list) or len(cur_cast) != len(new_cast):
+        return None
+    if {k: v for k, v in current_meta.items() if k != "cast"} != {k: v for k, v in new_meta.items() if k != "cast"}:
+        return None
+    out = []
+    for c, n in zip(cur_cast, new_cast):
+        if not isinstance(c, dict) or not isinstance(n, dict):
+            if c != n:
+                return None
+            continue
+        if {k: v for k, v in c.items() if k != "clause"} != {k: v for k, v in n.items() if k != "clause"}:
+            return None
+        if c.get("clause") != n.get("clause"):
+            if not c.get("locked"):
+                return None
+            out.append({"character": c.get("character"), "version": c.get("version"), "name": c.get("name"),
+                        "before": c.get("clause"), "after": n.get("clause")})
+    return out or None
 
 
 def clip_fields(change: dict) -> dict:

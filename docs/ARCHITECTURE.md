@@ -149,6 +149,9 @@ stateDiagram-v2
 2. All stills must be recorded (needs_review, still_complete, or qc_failed: a still the QC judge failed)
 3. **Undecided judge-failed stills refuse** - a shot whose kept still the QC judge failed needs a
    person's decision made after the verdict (approve, select, retry or reject; docs/QC-JUDGES.md)
+4. **Undecided old-look stills refuse** - after a G2 resync took the revised words of a locked cast
+   look, a shot whose kept still was made with the old words needs a person's decision made after
+   the resync, even if it was approved before (docs/CAST.md, "Revising a locked look")
 
 **On approval:**
 - Tells each child that keeps a judge-failed still a person kept (`keep_qc_failed_still`), then

@@ -237,6 +237,35 @@ async def test_shot_states_mark_a_judge_failed_still_and_leave_the_judges_words_
     assert "raincoat" not in json.dumps(hidden)
 
 
+async def test_shot_states_mark_a_still_made_before_a_locked_look_changed_and_name_it_only_to_the_cast(studio):
+    """After a G2 resync took a revised cast lock, a still made with the old words waits for a person:
+    the shot states say so (old_lock, needs_decision); the characters' names only for who may see the cast."""
+    why = "its still was made before a cast lock it shows was revised"
+    parent = {"shot_workflow_ids": {"S01": f"{EP}-shot-S01", "S02": f"{EP}-shot-S02"},
+              "still_flags": {"S01": {"workflow_id": f"{EP}-shot-S01", "old_lock": {
+                  "shot_id": "S01", "version": 1, "characters": ["Marguerite"], "decided": False}},
+                  "S02": {"workflow_id": f"{EP}-shot-S02", "old_lock": {
+                      "shot_id": "S02", "version": 1, "characters": ["Marguerite"], "decided": True}}},
+              "stills_needing_decision": {"S01": why}}
+
+    def handle_for(workflow_id, *_a, **_k):
+        state = CHILDREN[workflow_id.rsplit("-", 1)[1]] if "-shot-" in workflow_id else parent
+        return MagicMock(query=AsyncMock(return_value=state))
+
+    studio.temporal_client = MagicMock(get_workflow_handle=MagicMock(side_effect=handle_for))
+    shots = _client(studio, "owner").get(f"/api/episodes/{EP}/shot-states").json()["shots"]
+    assert shots["S01"]["old_lock"] == {"characters": ["Marguerite"], "decided": False}
+    assert (shots["S01"]["needs_decision"], shots["S01"]["qc_failed"]) == (why, None)
+    assert shots["S02"]["old_lock"] == {"characters": ["Marguerite"], "decided": True}
+    assert shots["S02"]["needs_decision"] is None
+
+    hidden = _client(studio, "other").get(f"/api/episodes/{EP}/shot-states").json()
+    assert hidden["cast_hidden"] is True
+    assert hidden["shots"]["S01"]["old_lock"] == {"characters": None, "decided": False}
+    assert hidden["shots"]["S01"]["needs_decision"] == why
+    assert "Marguerite" not in json.dumps(hidden)
+
+
 PROMPT = "S01: a tall woman in a mustard raincoat waits at the bus stop"
 
 

@@ -171,6 +171,29 @@ revise form in the Cast panel shows for admins only (`can_revise_locks` in the c
   (preflight, the Cast panel, a new run) use the new words. A run keeps the words it planned with
   until its plans are resynced.
 
+**A running episode.** At G2, with no still retry or recompose pending, `POST
+/api/episodes/{id}/resync-plans` re-parses the package and takes the revised words: a shot plan
+whose `shot_meta` differs only in the words (`clause`) of locked cast entries is accepted. Any other
+`shot_meta` change, such as another character, version, name or count, is still refused with 409 and
+needs a new G1. Behind the workflow patch `g2-resync-cast-revision-v1` (one marker per update), so a
+resync refused before this change stays refused when its history replays. Then:
+
+- Stills made again (retry, redo) inject the revised words and lint against them. The redo and
+  recompose pre-checks do the same. A recompose after G2 uses the words in force even when the
+  still it starts from was made with the old ones.
+- Every still of those shots made with the old words and still waiting at G2 is flagged `old_lock`.
+  This includes stills approved or selected before the resync. G2 approval is refused until a person
+  decides on the kept still: approve or select it to keep it, or retry or reject it. A later revision
+  of the same look flags them again. `GET /shot-states` shows `old_lock` (`characters`, `decided`)
+  and `needs_decision`; the run panel says which look changed.
+- A kept old still keeps its own plan: selecting it lints it with the words it was made with, and
+  its clip is made from it as usual (clip prompts never carry the cast words).
+- The resync result lists `cast_revisions` (per shot: character, version, the words before and
+  after) and `old_lock_stills`, and the run's `resync_log` keeps both.
+
+Resync right after revising. Until then, a still made again uses the words the run planned with,
+while the identity check reads the lock as it is now.
+
 Sheets use the server's still model (`MODEL_PATH_STILL`, default `xai/grok-imagine-image-2.0`) and only
 when `model_caps.json` lists it as routed by the REST provider. `gpt_image_2` (`mcp_only_not_on_api`)
 and other models the provider refuses cannot be chosen. A model whose reference limit is too small

@@ -4264,8 +4264,10 @@ async def resync_plans(
     same parser and path the episode used at start) and put the corrected TEXT fields in force:
     still re-rolls use the new prompt/end_prompt, and every still child parked at G2 gets the new
     clip_prompt/qc_fail_if for its clip submit and clip QC. Structural changes (shot set, shot_meta,
-    refs, model, duration, end frame) are refused with 409 (they need a new G1). No spend; does NOT
-    approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
+    refs, model, duration, end frame) are refused with 409 (they need a new G1), except the revised
+    words of a locked cast look (an admin's revise-lock): later stills use them, and each still made
+    with the old words waits for a person's decision before G2 (result "old_lock_stills"). No spend;
+    does NOT approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     reason = request.reason.strip()
@@ -4273,10 +4275,13 @@ async def resync_plans(
         raise HTTPException(status_code=422, detail="reason is required")
     result = await _execute_episode_update(episode_id, "resync_shot_plans", [reason], "Plan resync")
     changed = result.get("changed", {}) if isinstance(result, dict) else {}
+    flagged = sum(len(w) for w in (result.get("old_lock_stills") or {}).values()) if isinstance(result, dict) else 0
     await _audit(episode_id, "resync_shot_plans",
                  f"G2 package resync ({reason}): " + ", ".join(f"{k}[{'/'.join(v)}]" for k, v in changed.items()))
-    return {"success": True, "episode_id": episode_id, "result": result,
-            "message": f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"}
+    message = f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"
+    if flagged:
+        message += f"; {flagged} still(s) made with the old cast words wait for your decision"
+    return {"success": True, "episode_id": episode_id, "result": result, "message": message}
 
 
 # Mark resync_plans to allow members
@@ -7530,6 +7535,7 @@ async def get_shot_states(
             continue
         flags = flags_of.get(shot_id) or {}
         qc_failed = flags.get("qc_failed")
+        old_lock = flags.get("old_lock")
         moderation = child.get("moderation") or {}
         escalation = child.get("moderation_escalation")
         if cast_hidden and escalation:
@@ -7551,6 +7557,10 @@ async def get_shot_states(
             # rejects it before G2. The judge's words can quote the prompt, so cast_hidden drops them.
             "qc_failed": ({"reason": None if cast_hidden else qc_failed.get("reason"),
                            "decided": bool(qc_failed.get("decided"))} if qc_failed else None),
+            # The still was made with cast words an admin revised since (a G2 resync took them): a
+            # person keeps it or makes it again before G2. The names are cast, so cast_hidden drops them.
+            "old_lock": ({"characters": None if cast_hidden else list(old_lock.get("characters") or []),
+                          "decided": bool(old_lock.get("decided"))} if old_lock else None),
             "needs_decision": undecided.get(shot_id),
         }
     return {"episode_id": episode_id, "shots": out, "cast_hidden": cast_hidden}

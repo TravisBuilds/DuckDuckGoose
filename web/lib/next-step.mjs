@@ -82,8 +82,9 @@ const READY = new Set(['done', 'completed']);
 
 /**
  * The scene pictures at G2: how many wait for the creator's decision (ready or failed, no decision
- * yet, or flagged by the picture check since the last one: needs_decision) and how many are still
- * being made. Uses the shot states when the page has them, else the run state's shot count.
+ * yet, or flagged since the last one, by the picture check or because a locked look in it changed:
+ * needs_decision) and how many are still being made. Uses the shot states when the page has them,
+ * else the run state's shot count.
  */
 export function stillsToReview(state, shots) {
   const decisions = state?.shot_decisions ?? {};

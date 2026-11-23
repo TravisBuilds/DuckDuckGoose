@@ -157,7 +157,8 @@ see a cast:
   `cast_errors`, which would name the cast's characters.
 - The shot states (`GET /api/episodes/{id}/shot-states`, read-only) keep the statuses and the
   moderation steps for everyone, but the free text that can quote a shot's prompt (still and clip
-  errors, the escalation's provider message and reason, the lint messages) only for a caller who may
+  errors, the escalation's provider message and reason, the lint messages, a QC judge's reason, the
+  names of the characters whose locked look changed since a still was made) only for a caller who may
   read the episode's prompts. Anyone else gets `cast_hidden: true` and those fields empty.
 - The other episode reads that can quote a prompt follow the same rule. Whoever may not read the
   episode's prompts gets:

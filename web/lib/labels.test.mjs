@@ -73,6 +73,15 @@ test('a picture the picture check failed reads as flagged until a decision is ma
   assert.equal(shotStatusLabel('qc_failed'), 'Flagged by the picture check');
 });
 
+test('a picture made before a locked look in it was changed waits for a decision, even one approved before', () => {
+  assert.deepEqual(stillChip({ stillStatus: 'done', oldLook: true }), { label: 'Made before the look changed', tone: 'warn' });
+  assert.equal(stillChip({ stillStatus: 'done', decision: 'approved', oldLook: true }).label, 'Made before the look changed');
+  assert.equal(stillChip({ stillStatus: 'done', decision: 'approved', oldLook: false }).label, 'Approved');
+  assert.equal(stillChip({ stillStatus: 'done', oldLook: true, allApproved: true }).label, 'Made before the look changed');
+  assert.equal(stillChip({ stillStatus: 'done', oldLook: true, flagged: true }).label, 'Flagged by the picture check');
+  assert.equal(stillChip({ stillStatus: 'done', oldLook: true, retrying: true }).label, 'Being made again');
+});
+
 test('once every scene picture is approved, a picture without its own decision is not still "to review"', () => {
   assert.deepEqual(stillChip({ stillStatus: 'done', allApproved: true }), { label: 'Approved', tone: 'ok' });
   assert.deepEqual(stillChip({ stillStatus: 'done', decision: 'rejected', allApproved: true }), { label: 'Redo requested', tone: 'warn' });

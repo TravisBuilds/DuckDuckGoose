@@ -57,6 +57,9 @@ QC_FAIL_KEEP_PATCH = "g2-keep-qc-failed-still-v1"
 # approve_g2_shots also gets the shots a person kept, so their rows are approved whatever status an
 # earlier decision left (Bug 29); a G2 approval recorded before that replays with its old arguments.
 G2_KEPT_ROWS_PATCH = "g2-approve-kept-rows-v1"
+# resync_shot_plans also takes the revised words of a locked cast look ("<this>:<update id>", one
+# marker per update like RETRY_SHOT_LIMIT_PATCH); a resync recorded before that replays refused.
+CAST_REVISION_RESYNC_PATCH = "g2-resync-cast-revision-v1"
 
 
 def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
@@ -178,6 +181,11 @@ class EpisodeWorkflowV2:
         # version, reason, issues, decided}). G2 approval is refused while the kept still of a shot
         # carries a flag no one decided on since it was raised (_undecided_still_flags).
         self.qc_failed_stills: dict[str, dict] = {}
+        # Stills made with the words of a cast lock that a G2 resync then revised, each waiting for a
+        # person like a judge-failed still (child workflow id -> {shot_id, version, characters, decided}),
+        # and the revised words now in force ("<character>:<version>" -> clause) for later recomposes.
+        self.old_lock_stills: dict[str, dict] = {}
+        self.cast_clause_revisions: dict[str, str] = {}
         # GAP-28: corrected package re-synced at G2 (text fields only; see hfvg.plan_resync)
         self._beatmap_path: str | None = None
         self._dry_run: bool = True
@@ -1239,10 +1247,13 @@ class EpisodeWorkflowV2:
         return getattr(self.shot_results.get(shot_id), "id", None)
 
     def _still_flags(self, workflow_id: str | None) -> dict[str, dict]:
-        """The flags on one still child's still a person must decide on: {"qc_failed": {...}}."""
+        """The flags on one still child's still a person must decide on: {"qc_failed": {...},
+        "old_lock": {...}}."""
         flags = {}
         if workflow_id in self.qc_failed_stills:
             flags["qc_failed"] = self.qc_failed_stills[workflow_id]
+        if workflow_id in self.old_lock_stills:
+            flags["old_lock"] = self.old_lock_stills[workflow_id]
         return flags
 
     def _still_decided(self, workflow_id: str | None) -> None:
@@ -1253,7 +1264,8 @@ class EpisodeWorkflowV2:
     def _undecided_still_flags(self) -> dict[str, str]:
         """{shot_id: why} for each shot whose kept still (current child, still waiting at G2) carries a
         flag no person decided on since it was raised."""
-        why_for = {"qc_failed": "the QC judge failed its still"}
+        why_for = {"qc_failed": "the QC judge failed its still",
+                   "old_lock": "its still was made before a cast lock it shows was revised"}
         out = {}
         for shot_id in self.shot_results:
             wid = self._current_still_wid(shot_id)
@@ -1486,7 +1498,9 @@ class EpisodeWorkflowV2:
         corrected TEXT fields in force at G2, without spend: later still re-rolls use the new
         prompt/end_prompt/clip_prompt/qc_fail_if, and every still child still parked at G2 (every
         version, so a later selection is covered) is sent update_clip_plan so its clip submit and
-        clip QC use the new clip_prompt/qc_fail_if. Structural changes are refused (new G1)."""
+        clip QC use the new clip_prompt/qc_fail_if. Structural changes are refused (new G1), except
+        the revised words of a locked cast look (CAST_REVISION_RESYNC_PATCH): later stills and
+        recomposes use them, and each still already made with the old words waits for a person."""
         problem = self._resync_problem(reason)
         if problem:
             raise ApplicationError(f"Cannot resync shot plans: {problem}", non_retryable=True)
@@ -1500,6 +1514,12 @@ class EpisodeWorkflowV2:
         if problem:
             raise ApplicationError(f"Cannot resync shot plans: {problem}", non_retryable=True)
         res = plan_resync(self.parsed_beatmap.get("shots", []), parsed.get("shots", []))
+        if res["problems"]:
+            # a revised cast lock rewords shot_meta: taken only from the patch on (older resyncs replay refused)
+            revised = plan_resync(self.parsed_beatmap.get("shots", []), parsed.get("shots", []), cast_revisions=True)
+            if revised["cast_revisions"] and workflow.patched(
+                    f"{CAST_REVISION_RESYNC_PATCH}:{workflow.current_update_info().id}"):
+                res = revised
         if res["problems"]:
             raise ApplicationError("Cannot resync shot plans: " + "; ".join(res["problems"][:20]),
                                    non_retryable=True)
@@ -1530,6 +1550,12 @@ class EpisodeWorkflowV2:
                     workflow.logger.info(f"Could not update clip plan of {wid} (already finished): {e}")
         entry = {"reason": reason, "changed": {k: sorted(v) for k, v in res["changes"].items()},
                  "signalled": signalled}
+        if res.get("cast_revisions"):
+            for revs in res["cast_revisions"].values():
+                for r in revs:
+                    self.cast_clause_revisions[f"{r['character']}:{r['version']}"] = r["after"]
+            entry["cast_revisions"] = res["cast_revisions"]
+            entry["old_lock_stills"] = self._flag_old_lock_stills(sorted(res["cast_revisions"]))
         self.resync_log.append(entry)
         workflow.logger.info(f"G2 resync: {len(res['changes'])} shot(s) changed, {len(signalled)} child(ren) updated")
         return {"success": True, "action": "resync_shot_plans", **entry}
@@ -1539,6 +1565,38 @@ class EpisodeWorkflowV2:
         problem = self._resync_problem(reason)
         if problem:
             raise ApplicationError(f"Cannot resync shot plans: {problem}", non_retryable=True)
+
+    def _flag_old_lock_stills(self, shot_ids: list[str]) -> dict[str, list[str]]:
+        """After a resync took revised cast words for these shots: each of their still children still
+        waiting at G2 whose plan carries other words for a locked character than the ones in force
+        (cast_clause_revisions) waits for a person (old_lock), even one decided on before.
+        {shot_id: [workflow ids]}."""
+        words = self.cast_clause_revisions
+        flagged: dict[str, list[str]] = {}
+        for shot_id in shot_ids:
+            for row in self.still_version_children.get(shot_id, []):
+                wid = row["workflow_id"]
+                if self.still_child_status.get(wid, "running") != "running":
+                    continue
+                meta = (self.still_version_plans.get(wid) or {}).get("shot_meta") or {}
+                names = [c.get("name") or c.get("character") for c in meta.get("cast") or []
+                         if isinstance(c, dict) and c.get("locked")
+                         and words.get(f"{c.get('character')}:{c.get('version')}", c.get("clause")) != c.get("clause")]
+                if names:
+                    self.old_lock_stills[wid] = {"shot_id": shot_id, "version": row.get("version"),
+                                                 "characters": names, "decided": False}
+                    flagged.setdefault(shot_id, []).append(wid)
+        return flagged
+
+    def _revised_cast_meta(self, shot_meta: dict | None) -> dict | None:
+        """shot_meta with the words of each locked cast entry a resync revised (cast_clause_revisions)."""
+        words = self.cast_clause_revisions
+        if not words or not isinstance(shot_meta, dict) or not isinstance(shot_meta.get("cast"), list):
+            return shot_meta
+        cast = [{**c, "clause": words[f"{c.get('character')}:{c.get('version')}"]}
+                if isinstance(c, dict) and c.get("locked") and f"{c.get('character')}:{c.get('version')}" in words
+                else c for c in shot_meta["cast"]]
+        return {**shot_meta, "cast": cast}
 
     @workflow.query
     def clip_plans(self) -> dict:
@@ -3155,6 +3213,8 @@ class EpisodeWorkflowV2:
         if shot_meta:  # GAP-32: the new composition's cast (lint, headcount and clip QC use it)
             plan["shot_meta"] = {**(base.get("shot_meta") or {}), **shot_meta}
             plan["recompose"]["shot_meta_patch"] = dict(shot_meta)
+        if self.cast_clause_revisions and plan.get("shot_meta"):  # the cast words in force (resync)
+            plan["shot_meta"] = self._revised_cast_meta(plan["shot_meta"])
         if clip_route:  # GAP-45: owner-ordered clip model / Seedance resolution for the new composition
             plan["params"] = self.routed_params(base.get("params"), clip_route)
             plan["recompose"]["clip_route"] = dict(clip_route)

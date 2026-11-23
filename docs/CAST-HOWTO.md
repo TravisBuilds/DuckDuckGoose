@@ -59,6 +59,9 @@ character uses those pictures.
 
 **Admins only:** the words of a locked look (its description and outfit) can still be changed, also
 during a run, with **Change the locked words** under the look. Give the reason. The pictures stay.
+In a video already at the scene pictures step, re-sync its plans next: new pictures then use the new
+words, and each picture already made with the old words is marked **Made before the look changed**
+until you approve it or make it again.
 
 Paid sheets need the video in live mode (**Enable Live Mode** on the video's page). Before each
 picture, the studio checks the price, your balance and this video's budget again. If one of them

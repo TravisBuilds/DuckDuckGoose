@@ -79,6 +79,8 @@ export interface ShotState {
   reason?: string;
   /** The QC judge failed the picture the shot keeps; reason is null for who may not see the cast. */
   qc_failed?: { reason: string | null; decided: boolean } | null;
+  /** The picture was made with the words of a locked look an admin changed since; characters is null for who may not see the cast. */
+  old_lock?: { characters: string[] | null; decided: boolean } | null;
   /** Why the shot's picture waits for a decision before the pictures can be approved. */
   needs_decision?: string | null;
 }
@@ -543,8 +545,11 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
             const decision = state?.shot_decisions[sid];
             const retrying = Boolean(state?.pending_retries.includes(sid));
             const status = ss?.still_status ?? state?.shot_outcomes[sid]?.status ?? null;
+            const qcOpen = Boolean(ss?.qc_failed && !ss.qc_failed.decided);
+            const oldLookOpen = Boolean(ss?.old_lock && !ss.old_lock.decided);
             const c = stillChip({ stillStatus: status, decision, retrying, held: Boolean(ss?.moderation_escalation),
-              allApproved: approvedAll, flagged: Boolean(ss?.needs_decision) });
+              allApproved: approvedAll, flagged: Boolean(ss?.needs_decision) && (qcOpen || !oldLookOpen),
+              oldLook: Boolean(ss?.needs_decision) && oldLookOpen });
             const description = row?.beat_purpose || (castHidden ? '' : row?.prompt ?? '');
             const note = redoNote(reasons[sid], decision === 'rejected' ? state?.rejection_reasons[sid] : undefined);
             const canDecide = atG2 && !ended && canAct;
@@ -579,9 +584,17 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                   <p className="text-xs text-amber-800" data-testid={`qc-failed-${sid}`}>
                     {ss.qc_failed.reason ? `The picture check flagged this picture: ${ss.qc_failed.reason}`
                       : 'The picture check flagged this picture.'}
-                    {ss.needs_decision ? ' Approve it if it looks right, or make it again.' : ''}
+                    {qcOpen ? ' Approve it if it looks right, or make it again.' : ''}
                   </p>
                 ) : !castHidden && ss?.still_error && <p className="text-xs text-red-700">{ss.still_error}</p>}
+                {ss?.old_lock && (
+                  <p className="text-xs text-amber-800" data-testid={`old-lock-${sid}`}>
+                    {ss.old_lock.characters?.length
+                      ? `Made before the locked look of ${ss.old_lock.characters.join(' and ')} was changed.`
+                      : 'Made before a locked look in it was changed.'}
+                    {oldLookOpen ? ' Approve it if it still looks right, or make it again with the new look.' : ''}
+                  </p>
+                )}
                 {canDecide && (
                   <div className="mt-auto space-y-2">
                     <button data-testid={`approve-shot-${sid}`} disabled={busy || decision === 'approved'} className={`${btnPrimary} w-full`}
@@ -611,7 +624,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
                       }}>
                       Ask for a redo
                     </button>
-                    {(failed.includes(sid) || decision === 'rejected' || Boolean(ss?.qc_failed)) && (
+                    {(failed.includes(sid) || decision === 'rejected' || Boolean(ss?.qc_failed) || Boolean(ss?.old_lock)) && (
                       <button data-testid={`retry-shot-${sid}`} disabled={busy || retrying || pricing !== null}
                         className={`${btnSecondary} w-full`} onClick={() => priceRedo(sid, note)}>
                         {pricing === sid ? 'Checking the price…' : 'Make this picture again'}
@@ -647,7 +660,7 @@ export function SceneStillsSection({ episodeId, state, shotStates, shotStatesErr
           </button>
           <span className="text-sm text-gray-700" data-testid="approve-g2-line">
             {undecided.length > 0
-              ? `The picture check flagged ${undecided.join(', ')}: approve, make again or ask for a redo of each first.`
+              ? `${undecided.join(', ')} ${undecided.length === 1 ? 'waits' : 'wait'} for your decision (flagged above): approve, make again or ask for a redo of each first.`
               : clips ? `Approve once every picture has your decision. Then the clips are made, ${clips}.`
                 : 'Approve once every picture has your decision.'}
           </span>

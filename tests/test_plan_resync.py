@@ -68,6 +68,54 @@ def test_shot_set_change_is_refused():
     assert plan_resync([_shot(), _shot(shot_id="A02")], [_shot()])["problems"]
 
 
+PIP_OLD, PIP_NEW = "Pip: a small round robot.", "Pip: a tall square robot with two blue eyes."
+PIP = {"character": "pip", "version": 1, "name": "Pip", "clause": PIP_OLD, "locked": True}
+MOSS = {"character": "moss", "version": 2, "name": "Moss", "clause": "Moss: a grey moth.", "locked": True}
+
+
+def _cast_meta(*entries, **kw):
+    return {"count": 1, "cast": [dict(e) for e in entries], **kw}
+
+
+def test_revised_words_of_a_locked_cast_look_are_taken_only_when_asked_for():
+    old = _shot(shot_meta=_cast_meta(PIP, MOSS))
+    new = _shot(shot_meta=_cast_meta({**PIP, "clause": PIP_NEW}, MOSS))
+    refused = plan_resync([old], [new])
+    assert refused["problems"] == ["A01: shot_meta changed (structural; needs a new G1 plan)"]
+    assert "cast_revisions" not in refused
+    r = plan_resync([old], [new], cast_revisions=True)
+    assert r["problems"] == [] and r["changes"] == {"A01": {"shot_meta": new["shot_meta"]}}
+    assert r["cast_revisions"] == {"A01": [{"character": "pip", "version": 1, "name": "Pip",
+                                            "before": PIP_OLD, "after": PIP_NEW}]}
+    assert clip_fields(r["changes"]["A01"]) == {}
+    with_text = plan_resync([old], [_shot(prompt="p2", shot_meta=new["shot_meta"])], cast_revisions=True)
+    assert with_text["changes"] == {"A01": {"prompt": "p2", "shot_meta": new["shot_meta"]}}
+    assert plan_resync([old], [old], cast_revisions=True) == {"changes": {}, "problems": [], "cast_revisions": {}}
+
+
+@pytest.mark.parametrize("new_meta", [
+    _cast_meta({**PIP, "clause": PIP_NEW}, MOSS, count=2),  # and another field
+    _cast_meta({**PIP, "clause": PIP_NEW, "locked": False}, MOSS),  # the lock itself
+    _cast_meta({**PIP, "clause": PIP_NEW, "version": 2}, MOSS),  # another version
+    _cast_meta({**PIP, "clause": PIP_NEW, "name": "Pippa"}, MOSS),  # a rename
+    _cast_meta({**PIP, "clause": PIP_NEW}),  # a character left the shot
+    _cast_meta(MOSS, {**PIP, "clause": PIP_NEW}),  # the order
+    _cast_meta({**PIP, "clause": PIP_NEW}, MOSS, {**MOSS, "character": "moth"}),  # a character joined
+    {"count": 1},
+])
+def test_any_other_shot_meta_change_is_still_refused(new_meta):
+    r = plan_resync([_shot(shot_meta=_cast_meta(PIP, MOSS))], [_shot(shot_meta=new_meta)], cast_revisions=True)
+    assert r["problems"] == ["A01: shot_meta changed (structural; needs a new G1 plan)"], r
+    assert r["cast_revisions"] == {}
+
+
+def test_the_words_of_an_unlocked_look_are_not_a_lock_revision():
+    unlocked = {**PIP, "locked": False}
+    r = plan_resync([_shot(shot_meta=_cast_meta(unlocked))],
+                    [_shot(shot_meta=_cast_meta({**unlocked, "clause": PIP_NEW}))], cast_revisions=True)
+    assert r["problems"] and r["cast_revisions"] == {}
+
+
 # ---------- integration (dry) ----------
 
 def _rewrite(beatmap: str, **fields):
