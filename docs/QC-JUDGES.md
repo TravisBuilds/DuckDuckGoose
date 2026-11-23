@@ -220,7 +220,7 @@ token count and price sheet decide the real cost, which is what the ledger commi
 | Identity, judging one character: 1 composite | $0.0019 | $0.0009 |
 
 **Per take (estimate)**, one still and one clip attempt of a shot with `qc_fail_if` conditions and
-three cast sheets:
+three cast sheets (four when four characters are locked):
 
 | Locked characters (N) | Calls | Typical | Held |
 |---|---|---|---|
@@ -228,19 +228,20 @@ three cast sheets:
 | 1 | 12 | $0.014 | $0.033 |
 | 2 | 16 | $0.018 | $0.041 |
 | 3 | 20 | $0.022 | $0.048 |
-| 4 | 24 | $0.025 | $0.056 |
+| 4 | 24 | $0.025 | $0.058 |
 
 **Budget line.** By default every episode's line has the fixed $0.50 cap (stop $0.40): the room left
 under the $48.00 episode stop by the default line caps ($44.00 Higgsfield + $3.50 ElevenLabs =
 $47.50), so the episode stop does not move. It fits a small show: if every call cost its full hold,
-the stop would cover about 12 shots with one locked character, 10 with two or 8 with three (about
-28, 22 or 18 at the typical cost). After that, every check of the episode is NEEDS_REVIEW with
-"judge budget used up".
+the stop would cover one take of about 12 shots with one locked character, 10 with two or 8 with
+three (about 28, 22 or 18 at the typical cost), fewer with re-rolls. After that, every check of the
+episode is NEEDS_REVIEW with "judge budget used up".
 
 `HFVG_QC_LINE_CAP_USD=auto` sizes the line from the show instead (`hfvg/qc/judge_budget.py`). When an
 episode's first judge call creates its line, the cap is set so that the stop holds two takes of every
 shot of its `shots.json`, each call at its held amount with its text counted at a 6,000-character
-upper bound; never less than $0.50. For shots with `qc_fail_if` conditions and three cast entries:
+upper bound; never less than $0.50. For shots with `qc_fail_if` conditions and three cast entries
+(four in the last row):
 
 | Episode | `auto` cap (stop) |
 |---|---|
