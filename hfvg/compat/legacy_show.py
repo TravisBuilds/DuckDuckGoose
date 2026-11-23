@@ -342,9 +342,12 @@ def kit_lint_rules(kit: Any) -> LintRules:
     return default_lint_rules(kit.get("continuity_locks"))
 
 
-def adapter_profile(folder: Path) -> ShowProfile:
-    """The legacy adapter's profile of an episode folder. A kit that does not load leaves the default
-    lint here; the lint gate itself refuses it (hfvg.prompt_lint.lint_kit_problems)."""
+def adapter_profile(folder: Path | None) -> ShowProfile:
+    """The legacy adapter's profile of an episode folder (None: no episode, the env overrides only).
+    A kit that does not load leaves the default lint here; the lint gate itself refuses it
+    (hfvg.prompt_lint.lint_kit_problems)."""
+    if folder is None:
+        return series_profile()
     kit_path = folder / "prompt_kit.json"
     try:
         kit = json.loads(kit_path.read_text(encoding="utf-8")) if kit_path.is_file() else None

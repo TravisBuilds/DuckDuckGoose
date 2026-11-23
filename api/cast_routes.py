@@ -451,7 +451,7 @@ class CharacterCreateRequest(BaseModel):
     description: str = Field("", max_length=cast_store.DESCRIPTION_MAX)
     outfit: str = Field("", max_length=cast_store.OUTFIT_MAX)
     slug: str | None = Field(None, max_length=32)
-    body_type: str | None = Field(None, max_length=20)
+    body_type: str | None = Field(None, max_length=32)
     sheet_pose: str = Field("", max_length=cast_store.POSE_MAX)
 
 
@@ -459,7 +459,7 @@ class CharacterUpdateRequest(BaseModel):
     name: str | None = Field(None, max_length=cast_store.NAME_MAX)
     role: str | None = Field(None, max_length=cast_store.ROLE_MAX)
     description: str | None = Field(None, max_length=cast_store.DESCRIPTION_MAX)
-    body_type: str | None = Field(None, max_length=20)
+    body_type: str | None = Field(None, max_length=32)
     sheet_pose: str | None = Field(None, max_length=cast_store.POSE_MAX)
 
 
@@ -590,6 +590,21 @@ set_episode_series.allow_members = True
 # ------------------------------------------------------------------------------------- cast
 
 
+@router.get("/api/cast/body-presets")
+async def get_body_presets(episode_id: str | None = None, authorization: str | None = Header(None),
+                           studio_admin_token: str | None = Cookie(None)):
+    """The body types a character may have, with their labels: the built-in ones, then the body presets
+    of the episode's show (show profile ``body_presets``, docs/SHOW-PROFILE.md). Without an episode, the
+    deployment's show profile. For whoever may see the episode's cast."""
+    if episode_id:
+        episode_id = _episode_id(episode_id)
+        await _require_viewer(await _library(episode_id), authorization, studio_admin_token, CAST_HIDDEN)
+    return {"episode_id": episode_id or None, "default": cast_store.DEFAULT_BODY_TYPE,
+            "body_types": await _call(cast_store.body_presets, episode_id or None)}
+
+get_body_presets.allow_members = True
+
+
 @router.get("/api/episodes/{episode_id}/cast")
 async def get_episode_cast(episode_id: str, authorization: str | None = Header(None),
                            studio_admin_token: str | None = Cookie(None)):
@@ -652,7 +667,7 @@ async def create_cast_character_with_picture(
     name: str = Form(..., min_length=1, max_length=cast_store.NAME_MAX),
     role: str = Form("", max_length=cast_store.ROLE_MAX),
     description: str = Form("", max_length=cast_store.DESCRIPTION_MAX),
-    body_type: str = Form("", max_length=20),
+    body_type: str = Form("", max_length=32),
     sheet_pose: str = Form("", max_length=cast_store.POSE_MAX),
     rights: str = Form(""),
     depicts_real_person: str = Form("false"),

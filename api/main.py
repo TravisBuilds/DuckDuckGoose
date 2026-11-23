@@ -4517,6 +4517,7 @@ class RecomposeRequest(BaseModel):
 def _recompose_plate(episode_id: str, shot_id: str, manifest_path: str, approved_by: str | None) -> dict:
     """GAP-53: load + verify a plate manifest for a recompose (inside the episode dir, passed, this shot,
     PNG unchanged).  Raises HTTPException before any spend."""
+    from hfvg.compat.legacy_plate import row_ratio
     from hfvg.plate_composite import PlateSpecError, load_passed_manifest, sha256_file
     ep_dir = paths.episode_dir(episode_id).resolve()
     mp = Path(manifest_path)
@@ -4533,7 +4534,7 @@ def _recompose_plate(episode_id: str, shot_id: str, manifest_path: str, approved
     return {"path": str(png), "sha256": m["sha256"], "manifest": str(mp), "manifest_sha256": sha256_file(mp),
             "approved_by": (approved_by or "").strip() or "plate_composite",
             "checks": {"passed": True, "count": m.get("count"),
-                       "layers": {r["name"]: r.get("ratio_to_duck") for r in m.get("layers", [])}}}
+                       "layers": {r["name"]: row_ratio(r) for r in m.get("layers", [])}}}
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/recompose")
@@ -5272,16 +5273,24 @@ async def get_show_profile(
 ):
     """The show profile the episode's runs read (docs/SHOW-PROFILE.md): where it comes from (``source``
     episode | env | legacy-adapter | default), its digest, body presets, shot flags and identity
-    profile ids; no rule text. A show.json that does not validate is reported with its problems."""
+    profile ids, the gate policy it gets; no rule text. A show.json (or the gate policy it names) that
+    does not load is reported with its problems."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
-    from hfvg.show_profile import ShowProfileError, declared_source, resolve_show_profile
+    from hfvg.show_profile import (
+        ShowProfileError,
+        declared_source,
+        gate_policy_summary,
+        resolve_show_profile,
+    )
 
     try:
         profile = await asyncio.to_thread(resolve_show_profile, episode_id)
     except ShowProfileError as e:
         return {"episode_id": episode_id, "ok": False, "source": declared_source(episode_id), "errors": e.problems}
-    return {"episode_id": episode_id, "ok": True, **profile.summary(), "errors": []}
+    gate_policy = await asyncio.to_thread(gate_policy_summary, profile)
+    return {"episode_id": episode_id, "ok": not gate_policy["errors"], **profile.summary(),
+            "gate_policy": gate_policy, "errors": gate_policy["errors"]}
 
 
 get_show_profile.allow_members = True
@@ -7267,13 +7276,18 @@ async def preflight_episode(
 
 def _preflight_show_profile(episode_id: str) -> dict:
     """The preflight's show profile line: its source and digest, or why the show.json does not load."""
-    from hfvg.show_profile import ShowProfileError, declared_source, resolve_show_profile
+    from hfvg.show_profile import (
+        ShowProfileError,
+        declared_source,
+        gate_policy_problems,
+        resolve_show_profile,
+    )
 
     try:
         profile = resolve_show_profile(episode_id)
     except ShowProfileError as e:
         return {"source": declared_source(episode_id), "digest": None, "errors": e.problems}
-    return {"source": profile.source, "digest": profile.digest, "errors": []}
+    return {"source": profile.source, "digest": profile.digest, "errors": gate_policy_problems(profile)}
 
 
 # Mark preflight_episode to allow members

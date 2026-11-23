@@ -499,6 +499,9 @@ def sheet_prompts(root: Path, mp: pytest.MonkeyPatch) -> dict:
     mp.setenv("DRY_RUN", "true")
     mp.delenv("MODEL_PATH_STILL", raising=False)
     eps = root / "sheet_eps"
+    # Both are episodes from before show profiles: each has a prompt kit (ep95plain's says nothing).
+    (eps / "ep95plain").mkdir(parents=True)
+    (eps / "ep95plain" / "prompt_kit.json").write_text("{}")
     (eps / "ep95style").mkdir(parents=True)
     (eps / "ep95style" / "prompt_kit.json").write_text(json.dumps({"style": "flat pastel illustration, soft light."}))
     mp.setenv("EPISODES_DIR", str(eps))

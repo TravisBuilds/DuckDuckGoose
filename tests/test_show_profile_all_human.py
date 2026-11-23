@@ -7,12 +7,14 @@ with that data. No network, no spend."""
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import shutil
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from hfvg import show_profile
 from hfvg.show_profile import ShowProfileError, evaluate_when, resolve_show_profile
@@ -343,7 +345,8 @@ async def test_members_read_the_show_profile_an_episode_gets(studio, satire):
     member = _member(studio)
     body = member.get(f"/api/episodes/{EP}/show-profile").json()
     profile = resolve_show_profile(EP)
-    assert body == {"episode_id": EP, "ok": True, **profile.summary(), "errors": []}
+    gate_policy = {"from": "neutral", "series": "Neutral default", "errors": []}
+    assert body == {"episode_id": EP, "ok": True, **profile.summary(), "gate_policy": gate_policy, "errors": []}
     assert body["source"] == "episode" and body["digest"] == profile.digest
     assert body["body_presets"] == {"seated_desk": "Seated at a desk"}
     assert body["shot_flags"] == ["on_camera"] and body["identity_profiles"] == ["invented_person"]
@@ -376,3 +379,166 @@ async def test_the_preflight_reports_the_profile_and_refuses_a_bad_one(studio, s
     with pytest.raises(PreflightError) as err:
         await ActivityEnvironment().run(preflight_validate_episode_activity, EP)
     assert any("show profile" in p and "cast.Bad Id" in p for p in err.value.problems), err.value.problems
+
+
+async def test_the_cast_routes_offer_and_take_the_shows_body_preset(studio, satire, tmp_path, monkeypatch):
+    monkeypatch.setenv("CAST_STORAGE_DIR", str(tmp_path / "private-cast"))
+    member = _member(studio)
+    presets = member.get(f"/api/cast/body-presets?episode_id={EP}")
+    assert presets.status_code == 200, presets.text
+    assert presets.json() == {"episode_id": EP, "default": "humanoid", "body_types": [
+        {"value": "humanoid", "label": "Two legs, like a person", "source": "built-in"},
+        {"value": "four_legged", "label": "Four legs", "source": "built-in"},
+        {"value": "other", "label": "Another kind of body", "source": "built-in"},
+        {"value": "seated_desk", "label": "Seated at a desk", "source": "show"}]}
+    assert [b["value"] for b in member.get("/api/cast/body-presets").json()["body_types"]] == [
+        "humanoid", "four_legged", "other"], "no episode: the deployment's (here the neutral) profile"
+    admin = {"Authorization": f"Bearer {ADMIN}"}
+    made = member.post(f"/api/episodes/{EP}/cast", headers=admin, json={
+        "name": "The Moderator", "role": "moderator", "body_type": "seated_desk",
+        "description": "an invented television moderator in a teal blazer with a neat grey bob"})
+    assert made.status_code == 200 and made.json()["character"]["body_type"] == "seated_desk", made.text
+    refused = member.post("/api/episodes/ep72other/cast", headers=admin,
+                          json={"name": "Guest", "body_type": "seated_desk"})
+    assert refused.status_code == 400 and refused.json()["detail"] == (
+        "Body type must be one of: humanoid, four_legged, other"), "another show does not get this show's preset"
+
+
+# ------------------------------------------------------------------------------------------ cast and sheets
+
+
+@pytest.fixture
+def cast(satire, tmp_path, monkeypatch):
+    """The fixture's cast.json in the episode's own cast library (slug, name, role, look, body)."""
+    from hfvg import cast_store
+
+    monkeypatch.setenv("CAST_STORAGE_DIR", str(tmp_path / "private-cast"))
+    monkeypatch.setenv("DRY_RUN", "true")
+    rows = json.loads((FIXTURE / "cast.json").read_text(encoding="utf-8"))["characters"]
+    return {r["slug"]: cast_store.create_character(("episode", EP), r["name"], r["role"], r["description"],
+                                                   slug=r["slug"], actor="tester", body_type=r["body_type"])
+            for r in rows}
+
+
+def _plan(character: dict, stage: str, **kw) -> list[dict]:
+    from hfvg import cast_store
+    from hfvg.cast_sheets import plan_jobs
+
+    return plan_jobs(cast_store.get_character(character["character_id"]), 1, stage, episode_id=EP, live=False,
+                     **kw)["jobs"]
+
+
+def test_the_cast_keeps_the_shows_body_preset_and_another_show_does_not_get_it(cast):
+    from hfvg import cast_store
+
+    assert cast["moderator"]["body_type"] == "seated_desk" and cast["candidate-grey"]["body_type"] == "humanoid"
+    assert cast_store.body_types(EP) == ("humanoid", "four_legged", "other", "seated_desk")
+    with pytest.raises(cast_store.CastError, match="^Body type must be one of: humanoid, four_legged, other$"):
+        cast_store.create_character(("episode", "ep72other"), "Guest", body_type="seated_desk", actor="tester")
+    with pytest.raises(cast_store.CastError, match="seated_desk$"):
+        cast_store.update_character(cast["moderator"]["character_id"], body_type="standing_desk")
+
+
+def test_the_sheets_lead_with_the_show_and_frame_its_preset(cast):
+    from hfvg.cast_sheets import PLACEHOLDER_HEAD, SHEET_BODIES, placeholder_image
+
+    lead = "Satire cast sheet of an invented person."
+    preset = resolve_show_profile(EP).body_preset("seated_desk")
+    for slug, character in cast.items():
+        options = _plan(character, "options", source="text")
+        for job in options:
+            assert job["prompt"].startswith(f"{lead} {character['name']}: "), job["prompt"]
+            assert "original character" not in job["prompt"] and not species_words(job["prompt"]), job["prompt"]
+        if slug == "moderator":
+            assert all(preset.frame in j["prompt"] and j["aspect_ratio"] == "3:4" for j in options)
+            assert all(j["placeholder"] == [832, 1024] for j in options)
+            size = Image.open(io.BytesIO(placeholder_image(options[0]))).size
+            assert size == (832, 1024)
+        else:
+            assert all(SHEET_BODIES["humanoid"]["frame"] in j["prompt"] and j["aspect_ratio"] == "2:3"
+                       for j in options)
+            assert all("placeholder" not in j for j in options), "a built-in body keeps the jobs it always had"
+
+    from hfvg import cast_store
+    moderator = cast["moderator"]
+    cast_store.add_generated_image(moderator["character_id"], 1, _png(), role=cast_store.MASTER_ROLE,
+                                   job_id=f"m-{moderator['character_id']}", placeholder=True, actor="t")
+    views = {j["view"]: j for j in _plan(moderator, "turnaround")}
+    assert all(preset.frame in views[v]["prompt"] for v in views if v != "head_sheet")
+    assert preset.head in views["head_sheet"]["prompt"]
+    assert Image.open(io.BytesIO(placeholder_image(views["head_sheet"]))).size == PLACEHOLDER_HEAD
+    assert not any(species_words(j["prompt"]) for j in views.values())
+
+
+def test_a_locked_look_with_a_show_preset_can_be_revised(cast):
+    from hfvg import cast_store
+    from tests.cast_helpers import complete_sheet
+
+    cid = cast["moderator"]["character_id"]
+    complete_sheet(cast["moderator"])
+    cast_store.approve_version(cid, 1, "t")
+    revised = cast_store.revise_locked_version(cid, 1, description="an invented moderator in a red blazer",
+                                               reason="new season look", actor="admin-1", episode_id=EP)
+    assert revised["locked_description"] == "The Moderator: an invented moderator in a red blazer."
+    assert cast_store.verify_lock(cid, 1) == []
+    assert cast_store.get_character(cid)["body_type"] == "seated_desk"
+
+
+def _png() -> bytes:
+    from tests.cast_helpers import image_bytes
+    return image_bytes(seed=7)
+
+
+# ------------------------------------------------------------------------------------------ routing, gates, plates
+
+
+def test_routing_speaks_of_characters(satire):
+    from hfvg.routing import RoutingError, plan_route
+
+    shots = json.loads((satire / "shots.json").read_text(encoding="utf-8"))["shots"]
+    for shot in shots:
+        route = plan_route({**shot, "tier": "draft"})
+        assert route.model == "kling"
+        if shot["count"] > 1:
+            with pytest.raises(RoutingError) as err:
+                plan_route({**shot, "tier": "draft", "model": "seedance"})
+            assert str(err.value).startswith(f"Multi-character shots (count={shot['count']}) must use Kling")
+            assert not species_words(str(err.value))
+    assert plan_route({**shots[0], "tier": "draft", "model": "seedance", "duration": 5}).model == "seedance", (
+        "nobody in frame: Seedance stays eligible")
+
+
+def test_the_show_gets_the_neutral_gate_policy_in_general_words(satire):
+    profile = resolve_show_profile(EP)
+    policy = show_profile.load_gate_policy(profile)
+    assert policy.series == "Neutral default" and len(policy.gates) == 71
+    words = {w for g in policy.gates for v in g.values() if isinstance(v, str) for w in species_words(v)}
+    assert words == set(), words
+    assert show_profile.gate_policy_summary(profile) == {"from": "neutral", "series": "Neutral default", "errors": []}
+
+
+def test_a_plate_scales_the_shows_roles_against_its_scale_reference(tmp_path):
+    from hfvg import plate_composite
+    from tests.test_r9_plate import _spec
+
+    spec = _spec(tmp_path)
+    spec["scale_ref_height_frac"] = spec.pop("duck_height_frac")
+    for layer, role in zip(spec["layers"], ("candidate", "moderator")):
+        layer["height_frac_of_scale_ref"] = layer.pop("height_frac_of_duck")
+        layer["role"] = role
+    spec["rules"] = {"role_to_scale_ref": {"candidate": [1.8, 2.2], "moderator": [0.85, 1.15]},
+                     "back_max_frac": {"candidate": 0.9}}
+    manifest = plate_composite.compose(spec, tmp_path / "plate.png")
+    assert manifest["passed"] is True and manifest["scale_ref_height_frac"] == 0.4
+    for row in manifest["layers"]:
+        assert row["ratio_to_scale_ref"] == row["ratio_to_duck"], "both spellings for one release"
+        assert row["checks"]["ratio_to_scale_ref"] is True
+    assert "back_below_ref_at_depth" in manifest["layers"][0]["checks"]
+    assert "back_below_ref_at_depth" not in manifest["layers"][1]["checks"], "only the roles the show bounds"
+    spec["layers"][1]["role"] = "audience"
+    with pytest.raises(plate_composite.PlateSpecError, match=r"role must be one of \['candidate', 'moderator'\]"):
+        plate_composite.validate_spec(spec)
+    spec["layers"][1]["role"] = "moderator"
+    spec["duck_height_frac"] = 0.4
+    with pytest.raises(plate_composite.PlateSpecError, match="mixes"):
+        plate_composite.validate_spec(spec)

@@ -9,8 +9,10 @@ import {
   addForm,
   addWithPhotoProblem,
   anyActiveJobs,
+  bodyChoices,
   bodyFields,
   bodyNote,
+  bodyPresetsUrl,
   castEntries,
   castImportBody,
   castPicks,
@@ -22,6 +24,7 @@ import {
   estimateWhat,
   kitWithCast,
   latestRequest,
+  loadBodyPresets,
   lockedDescription,
   optionCounts,
   pictureHint,
@@ -183,6 +186,27 @@ test('the body types are the API ones, humanoid first, and a card names a body o
   assert.equal(bodyNote({ body_type: 'other', sheet_pose: 'perched, wings folded' }),
     'Body: another kind of body. Pose in the character sheet: perched, wings folded');
   assert.equal(bodyNote({ body_type: 'unheard-of' }), 'Body: another kind of body.');
+});
+
+test('the body choices come from the show: its presets after the built-in ones, the built-in list when that fails', async () => {
+  assert.equal(bodyPresetsUrl('ep 1'), '/api/cast/body-presets?episode_id=ep%201');
+  assert.equal(bodyPresetsUrl(''), '/api/cast/body-presets', 'no episode: the deployment-wide list');
+  const answer = {
+    episode_id: 'ep1', default: 'humanoid',
+    body_types: [
+      ...BODY_TYPES.map(b => ({ ...b, source: 'built-in' })),
+      { value: 'seated_desk', label: 'Seated at a desk', source: 'show' },
+    ],
+  };
+  const asked = [];
+  const choices = await loadBodyPresets('ep1', async (path) => { asked.push(path); return answer; });
+  assert.deepEqual(asked, ['/api/cast/body-presets?episode_id=ep1']);
+  assert.deepEqual(choices.map(b => b.value), ['humanoid', 'four_legged', 'other', 'seated_desk']);
+  assert.equal(bodyNote({ body_type: 'seated_desk' }, choices), 'Body: seated at a desk.');
+  assert.equal(bodyNote({ body_type: 'four_legged' }, choices), 'Body: four legs.');
+  assert.equal(await loadBodyPresets('ep1', async () => { throw new Error('offline'); }), BODY_TYPES);
+  assert.equal(await loadBodyPresets('ep1', async () => ({ body_types: [{ value: 1 }] })), BODY_TYPES);
+  assert.deepEqual(bodyChoices(null), BODY_TYPES);
 });
 
 test('pictures are grouped: uploads with the main one first, look options, the sheet in order', () => {

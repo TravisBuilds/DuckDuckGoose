@@ -1,6 +1,6 @@
 """GAP-52 prep (ep05v2 r9, Studio: code-composited start plates). Free, local plate preparation for
-hfvg.plate_composite: cut an animal out of an APPROVED still (matte) and paint the animals out of a
-still to get a clean plate (clean). Both are deterministic for the same inputs and write a JSON
+hfvg.plate_composite: cut a character out of an APPROVED still (matte) and paint the characters out of
+a still to get a clean plate (clean). Both are deterministic for the same inputs and write a JSON
 sidecar with input/output sha256 + provenance so the composite can verify what it is built from.
 
 Heavy optional dependencies (rembg for the matte, simple-lama-inpainting for the clean plate) are
@@ -44,7 +44,7 @@ def parse_box(text: str | list | tuple, size: tuple[int, int]) -> tuple[int, int
 
 
 def keep_largest_component(alpha: np.ndarray, thresh: int = 128) -> np.ndarray:
-    """Zero every alpha blob except the largest (a matte of a box can pick up a neighbour's paw)."""
+    """Zero every alpha blob except the largest (a matte of a box can pick up a piece of a neighbour)."""
     from collections import deque
     m = alpha >= thresh
     h, w = m.shape

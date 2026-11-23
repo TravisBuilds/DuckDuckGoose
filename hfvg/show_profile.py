@@ -376,6 +376,7 @@ class ShowProfile:
                 "identity_profiles": sorted(self.identity_profiles),
                 "flag_figures": [f.figure_id for f in self.flag_figures],
                 "playbook_rules": list(self.playbook.rule_ids()),
+                "gates": {"policy_file": self.gate_policy_file},
                 "policy": {"real_people": self.real_people}}
 
 
@@ -1007,12 +1008,59 @@ def declared_source(episode_id: str | None) -> str | None:
 
 
 def show_profile_problems(episode_id: str) -> list[str]:
-    """Why the episode's show profile cannot load ([] when it loads): checked by the preflight."""
+    """Why the episode's show profile (or the gate policy its show.json names) cannot load ([] when
+    both load): checked by the preflight."""
     try:
-        resolve_show_profile(episode_id)
+        profile = resolve_show_profile(episode_id)
     except ShowProfileError as e:
         return [f"show profile {e.where}: {p}" for p in e.problems]
+    return [f"show profile {profile.path}: {p}" for p in gate_policy_problems(profile)]
+
+
+def gate_policy_path(profile: ShowProfile) -> Path | None:
+    """The gate policy a show.json names (``gates.policy_file``, a file in the show's folder), or None:
+    the deployment's policy applies (hfvg.gates.load_policy)."""
+    if not profile.gate_policy_file or not profile.path:
+        return None
+    return Path(profile.path).parent / profile.gate_policy_file
+
+
+def gate_policy_problems(profile: ShowProfile) -> list[str]:
+    """Why the gate policy the show names cannot load ([] when it loads or the show names none)."""
+    path = gate_policy_path(profile)
+    if path is None:
+        return []
+    if not path.is_file():
+        return [f"gates.policy_file {profile.gate_policy_file!r} is not in the show's folder"]
+    from hfvg.gates import GatePolicy
+    try:
+        GatePolicy(path)
+    except (OSError, ValueError, AssertionError, KeyError, TypeError) as e:
+        return [f"gates.policy_file {profile.gate_policy_file!r} does not load: {e}"]
     return []
+
+
+def load_gate_policy(profile: ShowProfile):
+    """The show's gate policy: the file its show.json names; for an episode read through the legacy
+    adapter the deployment's lookup (hfvg.gates.load_policy, unchanged); otherwise the neutral policy
+    (examples/neutral, or what HFVG_GATE_POLICY / HFVG_RUN_DIR name when HFVG_PROJECT is neutral)."""
+    from hfvg.gates import NEUTRAL_PROJECT, GatePolicy, load_policy
+    path = gate_policy_path(profile)
+    if path is not None:
+        return GatePolicy(path)
+    return load_policy() if profile.source == "legacy-adapter" else load_policy(NEUTRAL_PROJECT)
+
+
+def gate_policy_summary(profile: ShowProfile) -> dict[str, Any]:
+    """Which gate policy the show gets (``from``: show | deployment | neutral), its series name, and
+    why it does not load ([] when it does): reported by the show-profile API."""
+    origin = ("show" if gate_policy_path(profile) is not None
+              else "deployment" if profile.source == "legacy-adapter" else "neutral")
+    try:
+        series = load_gate_policy(profile).series
+    except (OSError, ValueError, AssertionError, KeyError, TypeError) as e:
+        return {"from": origin, "series": None, "errors": gate_policy_problems(profile) or [str(e)]}
+    return {"from": origin, "series": series, "errors": []}
 
 
 def with_source(profile: ShowProfile, source: str, path: str | None = None) -> ShowProfile:

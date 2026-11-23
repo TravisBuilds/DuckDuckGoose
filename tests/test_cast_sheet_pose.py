@@ -212,6 +212,17 @@ def test_a_humanoid_sheet_is_planned_exactly_as_before_body_types():
         "turnaround_back": "2:3", "head_sheet": "3:2"}
 
 
+def test_an_episode_without_show_data_gets_the_neutral_sheet_lead_and_the_same_frames(monkeypatch):
+    monkeypatch.delenv("PROMPT_LINT_KIT_PATH", raising=False)
+    mara = new_character(LIB, "Mara", description=MARA)
+    assert [(j["prompt"], j["aspect_ratio"]) for j in _options(mara)] == [(
+        f"Character design reference. Mara: {MARA}. {UPRIGHT} {BACKDROP_AND_NO_TEXT}", "2:3")] * 3
+    upload(mara)
+    assert _options(mara)[0]["prompt"].startswith("Character design reference. The reference image shows this")
+    assert _turnaround(mara)["turnaround_side"]["prompt"] == (
+        f"{TURNAROUND_LEAD} Mara: {MARA}. Seen in full profile from the side. {UPRIGHT} {BACKDROP_AND_NO_TEXT}")
+
+
 def test_a_four_legged_sheet_stands_on_four_legs_in_landscape_pictures():
     sheep = new_character(LIB, "Wool", description=WOOL, body_type="four_legged")
     frame = SHEET_BODIES["four_legged"]["frame"]

@@ -153,6 +153,7 @@ _PROJECT_RE = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
 POLICY_FILE_NAME = "HARNESS-GATES.json"
+NEUTRAL_PROJECT = "neutral"
 
 
 def policy_search_paths(project: str | None = None) -> list[tuple[str, Path]]:
@@ -162,6 +163,9 @@ def policy_search_paths(project: str | None = None) -> list[tuple[str, Path]]:
     2. ``HFVG_RUN_DIR``: ``<run dir>/HARNESS-GATES.json`` then ``<run dir>/policy/HARNESS-GATES.json``
        (the active project only)
     3. ``examples/<project>/HARNESS-GATES.json`` in the repo (the public fallback)
+    4. ``examples/neutral/HARNESS-GATES.json`` when ``examples/<project>/`` exists but ships no
+       policy (a show folder that names none: docs/SHOW-PROFILE.md). A project with no folder
+       still finds nothing: an unknown project name fails instead of falling back.
 
     The active project is ``HFVG_PROJECT`` (default ``demo``): an explicit ``load_policy("other")``
     for a different project only uses the examples fallback, so a private run policy never leaks
@@ -180,7 +184,10 @@ def policy_search_paths(project: str | None = None) -> list[tuple[str, Path]]:
         if run_dir:
             paths.append(("HFVG_RUN_DIR", Path(run_dir) / POLICY_FILE_NAME))
             paths.append(("HFVG_RUN_DIR", Path(run_dir) / "policy" / POLICY_FILE_NAME))
-    paths.append(("examples", Path(__file__).parent.parent / "examples" / project / POLICY_FILE_NAME))
+    examples = Path(__file__).parent.parent / "examples"
+    paths.append(("examples", examples / project / POLICY_FILE_NAME))
+    if (examples / project).is_dir() and not (examples / project / POLICY_FILE_NAME).is_file():
+        paths.append(("neutral", examples / NEUTRAL_PROJECT / POLICY_FILE_NAME))
     return paths
 
 
@@ -189,7 +196,8 @@ def load_policy(project: str | None = None) -> GatePolicy:
     Load the gate policy (HARNESS-GATES.json) for a project.
 
     Search order: see policy_search_paths (HFVG_GATE_POLICY, then HFVG_RUN_DIR, then
-    examples/<project>/). Documented in docs/GATE-POLICY.md.
+    examples/<project>/, then examples/neutral/ for a project folder without a policy).
+    Documented in docs/GATE-POLICY.md.
 
     Args:
         project: Project name. If None, reads from HFVG_PROJECT env var (default: 'demo')
