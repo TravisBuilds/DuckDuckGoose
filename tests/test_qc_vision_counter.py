@@ -1,24 +1,27 @@
-"""Automated QC judge (b), the character and animal counter (hfvg/qc/vision_counter.py,
-docs/QC-JUDGES.md), behind ``AnimalCounter``: the G2 and recompose headcounts and the assembly
-animal check. One cached judge call per still or clip window answers the cast, duck and animal
-counts. A counter that cannot answer (error, budget refusal, low confidence, malformed answer) is
-NEEDS_REVIEW for that shot: never a pass, never a 500 or an activity retry. A reviewer's recorded
-headcount still wins. FakeJudgeClient only: no network, no spend."""
+"""Automated QC judge (b), the headcount counter (hfvg/qc/vision_counter.py, docs/QC-JUDGES.md),
+behind ``CastCounter``: the G2 and recompose headcounts and the assembly headcount. One cached judge
+call per still or clip window answers for every figure the shot declares (by its id) and for the
+figures nobody declared. A counter that cannot answer (error, budget refusal, low confidence,
+malformed answer) is NEEDS_REVIEW for that shot: never a pass, never a 500 or an activity retry. A
+reviewer's recorded headcount still wins. The shots here are shots of the first series (main
+characters without cast entries, a host declared by ``duck_present``), which keep working as data;
+shows with a cast library are in tests/test_qc_any_show.py. FakeJudgeClient only: no network, no spend."""
 
 from __future__ import annotations
 
 import pytest
 
 from hfvg.activities.qc import check_assembly_qc
-from hfvg.qc.animal_count import check_shot_animals, set_animal_counter
+from hfvg.qc.animal_count import check_shot_animals
 from hfvg.qc.g2_headcount import (
     ReviewerHeadcountCounter,
     check_still_headcount,
     g2_headcount_report,
     record_headcount,
 )
-from hfvg.qc.judges import FakeJudgeClient, JudgeService, JudgeUnavailable
-from hfvg.qc.vision_counter import VisionAnimalCounter
+from hfvg.qc.headcount import set_cast_counter, shot_roster
+from hfvg.qc.judges import DEFAULT_PRICE_IN_USD, DEFAULT_PRICE_OUT_USD, FakeJudgeClient, JudgeService, JudgeUnavailable
+from hfvg.qc.vision_counter import VisionCastCounter
 from tests.lint_helpers import lint_meta
 from tests.qc_judge_helpers import image, live_episode, locked_character, qc_line, reset_registries
 from tests.test_picture_assembly_round3 import HB, MOVING, make_clip, needs_ffmpeg
@@ -28,8 +31,17 @@ CAPY3 = {"count": 3, "characters": ["R", "H", "M"], "duck": False}
 DUCK_HOST = {"count": 1, "characters": ["D", "R"], "duck": True}
 
 
-def _counts(cast=3, duck=0, animal=3, confidence=0.9, **extra):
-    return {"cast": cast, "duck": duck, "animal": animal, "confidence": confidence, "notes": "counted", **extra}
+def _answer(counts=None, unexpected=0, background=0, confidence=0.9, mismatched=(), **extra):
+    """The judge's answer: {figure id: count}; ``mismatched``: the ids that do not look like their
+    description."""
+    figures = {fid: {"count": n, "matches": fid not in mismatched} for fid, n in (counts or {}).items()}
+    return {"figures": figures, "unexpected": unexpected, "background": background, "confidence": confidence,
+            "notes": "counted", **extra}
+
+
+def _cast(n=3, **kw):
+    """The answer for a shot whose main characters have no cast entry: one group, counted together."""
+    return _answer({"_cast": n}, **kw)
 
 
 @pytest.fixture
@@ -48,7 +60,7 @@ def _still(tmp_path, shot="V12", v=2, seed=0):
 
 def _counter(*answers, **kw):
     client = FakeJudgeClient(*answers, **kw)
-    return VisionAnimalCounter(JudgeService(client)), client
+    return VisionCastCounter(JudgeService(client)), client
 
 
 def _ctx(shot="V12"):
@@ -58,57 +70,74 @@ def _ctx(shot="V12"):
 # ------------------------------------------------------------------------------------------ G2 headcount
 
 
-async def test_one_call_answers_the_three_counts_of_a_still(db, tmp_path):
-    counter, client = _counter(_counts())
+async def test_one_call_answers_every_declared_figure_of_a_still(db, tmp_path):
+    counter, client = _counter(_cast(3))
     res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())
     assert res["status"] == "PASS", res
-    assert [(c["species"], c["counted"], c["method"]) for c in res["checks"]] == \
-        [("cast", 3, "vision_judge"), ("duck", 0, "vision_judge"), ("animal", 3, "vision_judge")]
+    assert [(c["label"], c["counted"], c["method"]) for c in res["checks"]] == \
+        [("cast", 3, "vision_judge"), ("unexpected figures", 0, "vision_judge")]
+    assert res["expected"] == {"figures": [{"id": "_cast", "name": "cast", "expected": 3, "group": True,
+                                            "locked": False}], "unexpected": 0}
     assert len(client.calls) == 1
 
 
 async def test_a_fourth_cast_animal_or_a_missing_duck_fails(db, tmp_path):
-    counter, _ = _counter(_counts(cast=4, animal=4))
+    counter, _ = _counter(_cast(4))
     res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())
     assert res["status"] == "FAIL" and "cast: expected 3, counted 4" in res["reason"], res
-    counter, _ = _counter(_counts(cast=1, duck=0, animal=1))
+    counter, _ = _counter(_answer({"_cast": 1, "_duck_host": 0}))
     res = await check_still_headcount(counter, _still(tmp_path, seed=1), DUCK_HOST, shot_context=_ctx())
     assert res["status"] == "FAIL" and "duck: expected 1, counted 0" in res["reason"], res
 
 
+async def test_an_undeclared_figure_fails_and_a_background_figure_goes_to_a_person(db, tmp_path):
+    counter, _ = _counter(_cast(3, unexpected=1))
+    res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())
+    assert res["status"] == "FAIL" and res["reason"] == "unexpected figures: expected 0, counted 1", res
+    counter, _ = _counter(_cast(3, background=2))
+    res = await check_still_headcount(counter, _still(tmp_path, seed=2), CAPY3, shot_context=_ctx())
+    assert res["status"] == "NEEDS_REVIEW", res
+    assert res["reason"] == "background figures nobody declared: 2 (a person decides)", res
+
+
 async def test_low_confidence_is_needs_review(db, tmp_path):
-    counter, _ = _counter(_counts(cast=4, animal=4, confidence=0.4))
+    counter, _ = _counter(_cast(4, confidence=0.4))
     res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())
     assert res["status"] == "NEEDS_REVIEW" and "low confidence 0.40 < 0.7" in res["reason"], res
 
 
 @pytest.mark.parametrize("answer", [
-    RuntimeError("upstream broke"), "{not json", _counts(cast=-1), _counts(duck=1.5), _counts(confidence=2),
-    {"cast": 3, "duck": 0, "confidence": 0.9},
-], ids=["upstream-error", "not-json", "negative-cast", "fractional-duck", "confidence-above-1", "no-animal-count"])
+    RuntimeError("upstream broke"), "{not json", _cast(-1), _cast(1.5), _cast(confidence=2),
+    {"figures": {"_cast": {"count": 3}}, "background": 0, "confidence": 0.9}, _answer({}),
+], ids=["upstream-error", "not-json", "negative-count", "fractional-count", "confidence-above-1",
+        "no-unexpected-count", "a-figure-not-counted"])
 async def test_a_counter_that_cannot_answer_is_needs_review_and_asked_once(db, tmp_path, answer):
     counter, client = _counter(answer)
-    res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())
-    assert res["status"] == "NEEDS_REVIEW", res
-    assert all(c["status"] == "NEEDS_REVIEW" and "counter error" in c["reason"] for c in res["checks"]), res
-    assert len(client.calls) == 1  # the failure is remembered: the other two counts do not pay again
+    still = _still(tmp_path)
+    for _look in range(2):  # the G2 page, then a reload: the failure is remembered, not paid again
+        res = await check_still_headcount(counter, still, CAPY3, shot_context=_ctx())
+        assert res["status"] == "NEEDS_REVIEW", res
+        assert [c["reason"] for c in res["checks"]] == [res["reason"]] and "counter error" in res["reason"], res
+    assert len(client.calls) == 1
 
 
 async def test_a_budget_refusal_is_needs_review_without_a_call(db, tmp_path):
     from hfvg.budget import BudgetLedger
 
     await BudgetLedger(db).ensure_line(EP, "qc_judges", 500_000, stop_usd_micros=1, provider="openai")
-    counter, client = _counter(_counts())
+    counter, client = _counter(_cast())
     res = await check_still_headcount(counter, _still(tmp_path), CAPY3, shot_context=_ctx())
     assert res["status"] == "NEEDS_REVIEW" and "budget refused the judge call" in res["reason"], res
+    assert res["reason"].startswith("judge budget used up, a person checks this: ") and res["judge_budget_used_up"]
+    assert "the qc_judges line: $0.00 spent or held of its $0.000001 stop" in res["reason"], res
     assert client.calls == [] and qc_line(db, EP)["reserved"] == 0
 
 
 async def test_a_reload_of_the_g2_page_does_not_pay_again(db, tmp_path):
     still = _still(tmp_path)
-    counter, client = _counter(_counts())
+    counter, client = _counter(_cast())
     await check_still_headcount(counter, still, CAPY3, shot_context=_ctx())
-    reload, again = _counter(_counts(cast=4))
+    reload, again = _counter(_cast(4))
     res = await check_still_headcount(reload, still, CAPY3, shot_context=_ctx())
     assert res["status"] == "PASS" and again.calls == [] and qc_line(db, EP)["spent"] == 560
     changed = _still(tmp_path, seed=7)  # a re-rolled still with the same name: new content, new count
@@ -120,7 +149,7 @@ async def test_a_reviewer_count_wins_and_the_counter_is_asked_only_without_one(d
     eps = tmp_path / "eps"
     v2, v3 = _still(tmp_path, v=2), _still(tmp_path, v=3, seed=3)
     record_headcount(EP, "V12", 2, {"cast": 3, "duck": 0}, by="reviewer", episodes_dir=eps)
-    vision, client = _counter(_counts(cast=4, animal=4))
+    vision, client = _counter(_cast(4))
     from hfvg.qc.g2_headcount import load_headcounts
     counter = ReviewerHeadcountCounter(load_headcounts(EP, eps), vision)
     assert (await check_still_headcount(counter, v2, CAPY3, shot_context=_ctx()))["status"] == "PASS"
@@ -139,7 +168,7 @@ async def test_the_g2_report_counts_each_kept_still_and_survives_a_broken_counte
     plans = {"V12": {"shot_meta": CAPY3}, "V23": {"shot_meta": CAPY3}}
 
     def by_shot(request):
-        return _counts() if "Shot V12" in request["text"] else _counts(cast=2, animal=2)
+        return _cast(3) if "Shot V12" in request["text"] else _cast(2)
 
     counter, client = _counter(by_shot, by_shot)
     rep = await g2_headcount_report(EP, _versions(V12=2, V23=2), plans, {}, counter=counter, data_dir=tmp_path,
@@ -154,6 +183,28 @@ async def test_the_g2_report_counts_each_kept_still_and_survives_a_broken_counte
                                     episodes_dir=tmp_path / "eps")
     assert rep["status"] == "NEEDS_REVIEW" and rep["blocking"] == [], rep
     assert rep["shots"]["V12"]["status"] == rep["shots"]["V23"]["status"] == "NEEDS_REVIEW"
+    assert rep["judge_budget_used_up"] == []
+
+
+async def test_the_g2_report_names_the_shots_a_person_counts_because_the_judge_budget_ran_out(db, tmp_path):
+    from hfvg.budget import BudgetLedger
+
+    _still(tmp_path, "V12", 2)
+    _still(tmp_path, "V23", 2, seed=4)
+    plans = {"V12": {"shot_meta": CAPY3}, "V23": {"shot_meta": CAPY3}}
+    counter, client = _counter(_cast(3))
+    rep = await g2_headcount_report(EP, _versions(V12=2), plans, {}, counter=counter, data_dir=tmp_path,
+                                    episodes_dir=tmp_path / "eps")
+    assert rep["status"] == "PASS" and rep["judge_budget_used_up"] == []
+    ledger = BudgetLedger(db)
+    line = await ledger.get_line_status(EP, "qc_judges")
+    assert await ledger.reserve(EP, "qc_judges", line["available"], "held by another check", job_id="other")
+    rep = await g2_headcount_report(EP, _versions(V12=2, V23=2), plans, {}, counter=counter, data_dir=tmp_path,
+                                    episodes_dir=tmp_path / "eps")
+    assert rep["shots"]["V12"]["status"] == "PASS"  # counted before the budget ran out: cached, free
+    assert rep["status"] == "NEEDS_REVIEW" and rep["judge_budget_used_up"] == ["V23"], rep
+    assert rep["shots"]["V23"]["reason"].startswith("judge budget used up, a person checks this"), rep
+    assert len(client.calls) == 1
 
 
 # ------------------------------------------------------------------------------------------ API
@@ -209,7 +260,7 @@ async def test_the_g2_headcount_route_answers_needs_review_when_the_counter_brea
     _still(tmp_path, "V12", 2)
     wire(_Handle(_versions(V12=2), {"V12": {"shot_meta": CAPY3}}))
     counter, judge = _counter(ConnectionError("refused"))
-    set_animal_counter(counter)
+    set_cast_counter(counter)
     r = await client.get(f"/api/episodes/{EP}/g2-headcount")
     assert r.status_code == 200, r.text
     shot = r.json()["shots"]["V12"]
@@ -220,10 +271,12 @@ async def test_the_g2_headcount_route_answers_needs_review_when_the_counter_brea
 async def test_the_g2_headcount_route_with_a_working_counter_and_no_model_name(api, tmp_path, monkeypatch):
     client, wire = api
     monkeypatch.setenv("HFVG_QC_JUDGE_MODEL", "placeholder-vision-model")
+    monkeypatch.setenv("HFVG_QC_JUDGE_USD_PER_MTOK_IN", DEFAULT_PRICE_IN_USD)
+    monkeypatch.setenv("HFVG_QC_JUDGE_USD_PER_MTOK_OUT", DEFAULT_PRICE_OUT_USD)
     _still(tmp_path, "V12", 2)
     wire(_Handle(_versions(V12=2), {"V12": {"shot_meta": CAPY3}}))
-    counter, judge = _counter(_counts(cast=4, animal=4))
-    set_animal_counter(counter)
+    counter, judge = _counter(_cast(4))
+    set_cast_counter(counter)
     r = await client.get(f"/api/episodes/{EP}/g2-headcount")
     assert r.status_code == 200 and r.json()["blocking"] == ["V12"], r.text
     assert "placeholder-vision-model" not in r.text
@@ -236,7 +289,7 @@ async def test_the_recompose_headcount_route_answers_needs_review_when_the_count
     _still(tmp_path, "V12", 4)
     wire(_Handle(recompose={"V12": {"version": 4, "shot_meta": CAPY3, "decision": None, "still_ready": True}}))
     counter, _judge = _counter(RuntimeError("down"))
-    set_animal_counter(counter)
+    set_cast_counter(counter)
     r = await client.get(f"/api/episodes/{EP}/recompose-headcount")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "NEEDS_REVIEW" and r.json()["failing"] == [], r.text
@@ -248,37 +301,40 @@ async def test_the_recompose_headcount_route_answers_needs_review_when_the_count
 async def test_the_request_describes_the_cast_and_sends_its_sheet_images(db, tmp_path):
     pip = locked_character(EP)
     meta = {"count": 1, "characters": ["R"], "duck": False, "cast": [pip]}
-    counter, client = _counter(_counts(cast=1, animal=1))
+    counter, client = _counter(_answer({pip["character"]: 1}))
     res = await check_still_headcount(counter, _still(tmp_path), meta, shot_context=_ctx())
     assert res["status"] == "PASS", res
     (request,) = client.calls
-    assert pip["clause"] in request["text"] and "Reference images after the frames, in order: Pip." in request["text"]
+    assert f"- {pip['character']}: {pip['clause']}" in request["text"]
+    assert "Reference images after the frames, in order: Pip." in request["text"]
     assert len(request["images"]) == 2
 
 
 async def test_without_a_described_cast_the_judge_is_told_what_counts_as_cast(db, tmp_path):
-    counter, client = _counter(_counts(cast=1, duck=1, animal=2))
+    counter, client = _counter(_answer({"_cast": 1, "_duck_host": 1}))
     res = await check_still_headcount(counter, _still(tmp_path), DUCK_HOST, shot_context=_ctx())
     assert res["status"] == "PASS", res
     text = client.calls[0]["text"]
-    assert "No main characters are described" in text and "The shot's host is a duck" in text
+    assert "- _cast: cast, the shot's main characters that have no description here" in text
+    assert "- _duck_host: the series' duck host, not one of the shot's main characters" in text
 
 
 async def test_the_duck_host_is_left_out_of_the_assembly_animal_count(db, tmp_path):
     still = _still(tmp_path)
-    counter, client = _counter(_counts(cast=1, duck=1, animal=2))
+    counter, client = _counter(_answer({"_cast": 1, "_duck_host": 1}))
     res = await check_shot_animals(counter, still, DUCK_HOST, shot_context=_ctx())
     assert res["status"] == "PASS", res
-    assert [c["details"]["count"] for c in res["checks"]] == [1, 1]
-    plain = await counter.count_animals(still, "animal", {**_ctx(), "shot_meta": DUCK_HOST})
-    assert plain["count"] == 2 and len(client.calls) == 1
-    assert "The shot's host is a duck" in client.calls[0]["text"]
+    assert [(c["label"], c["expected"], c["counted"]) for c in res["checks"]] == \
+        [("cast", 1, 1), ("duck", 1, 1), ("unexpected figures", 0, 0)]
+    assert len(client.calls) == 1
 
 
-async def test_an_unknown_species_is_refused(db, tmp_path):
-    counter, client = _counter(_counts())
-    with pytest.raises(JudgeUnavailable, match="not 'cat'"):
-        await counter.count_animals(_still(tmp_path), "cat", _ctx())
+async def test_a_count_without_declared_figures_is_refused(db, tmp_path):
+    counter, client = _counter(_cast())
+    with pytest.raises(JudgeUnavailable, match="no declared figures to count against"):
+        await counter.count_cast(_still(tmp_path), _ctx())
+    res = await check_still_headcount(counter, _still(tmp_path), {"characters": ["R"]}, shot_context=_ctx())
+    assert res["status"] == "NEEDS_REVIEW" and res["reason"] == "shot declares no cast to verify against", res
     assert client.calls == []
 
 
@@ -298,11 +354,13 @@ async def test_a_clip_is_counted_on_frames_inside_its_trim_window(db, tmp_path, 
     monkeypatch.setattr(vision_counter, "extract_frames", frames)
     clip = tmp_path / "A01.mp4"
     clip.write_bytes(b"clip bytes")
-    counter, client = _counter(_counts(cast=1, animal=1), _counts(cast=1, animal=1))
-    res = await counter.count_animals(clip, "cast", {**_ctx("A01"), "shot_meta": lint_meta(1), "window": (2.0, 6.0)})
-    assert res["count"] == 1 and seen["times"] == [2.667, 4.0, 5.333]
+    counter, client = _counter(_cast(1), _cast(1))
+    meta = lint_meta(1)
+    ctx = {**_ctx("A01"), "shot_meta": meta, "roster": shot_roster(meta)}
+    res = await counter.count_cast(clip, {**ctx, "window": (2.0, 6.0)})
+    assert res["figures"] == {"_cast": {"count": 1, "matches": True}} and seen["times"] == [2.667, 4.0, 5.333]
     assert len(client.calls[0]["images"]) == 3 and "3 frame(s) to count" in client.calls[0]["text"]
-    await counter.count_animals(clip, "cast", {**_ctx("A01"), "shot_meta": lint_meta(1), "window": (0.0, None)})
+    await counter.count_cast(clip, {**ctx, "window": (0.0, None)})
     assert seen["times"] == [1.667, 5.0, 8.333] and len(client.calls) == 2
 
 
@@ -310,18 +368,20 @@ async def test_a_clip_is_counted_on_frames_inside_its_trim_window(db, tmp_path, 
 
 
 @needs_ffmpeg
-async def test_the_assembly_animal_check_counts_each_shot_once(db, tmp_path):
+async def test_the_assembly_headcount_counts_each_shot_once(db, tmp_path):
     from hfvg.activities.media import assemble_mute_edit
 
     clips = {sid: str(make_clip(tmp_path / f"{sid}.mp4", 2.0, MOVING)) for sid in ("A01", "A02")}
     edit = await HB().run(assemble_mute_edit, EP, [{"shot_id": s, "duration": 2.0} for s in clips], clips,
                           str(tmp_path / "edit"))
-    counter, client = _counter(_counts(cast=1, animal=1), _counts(cast=1, duck=1, animal=2))
-    set_animal_counter(counter)
+    counter, client = _counter(_cast(1), _answer({"_cast": 1, "_duck_host": 1}))
+    set_cast_counter(counter)
     qc = await HB().run(check_assembly_qc, edit["assembly_path"], edit["manifest"], EP,
                         {"A01": lint_meta(1), "A02": lint_meta(1, duck=True)})
     assert qc["verdict"] == "PASS", qc
-    assert len(client.calls) == 2  # one per shot: the animal count and the duck presence share it
+    assert qc["reason"] == "all shots passed motion and headcount checks"
+    assert len(client.calls) == 2  # one per shot: the main characters and the host share it
+    assert qc["headcount_results"] == qc["animal_results"] and len(qc["headcount_results"]) == 2
 
 
 @needs_ffmpeg
@@ -332,7 +392,24 @@ async def test_a_counter_error_in_the_assembly_is_needs_review_not_a_retry(db, t
     edit = await HB().run(assemble_mute_edit, EP, [{"shot_id": "A01", "duration": 2.0}], clips,
                           str(tmp_path / "edit"))
     counter, _client = _counter(RuntimeError("down"))
-    set_animal_counter(counter)
+    set_cast_counter(counter)
     qc = await HB().run(check_assembly_qc, edit["assembly_path"], edit["manifest"], EP, {"A01": lint_meta(1)})
     assert qc["verdict"] == "NEEDS_REVIEW" and qc["escalate"] is True, qc
     assert "counter error" in qc["reason"], qc
+
+
+@needs_ffmpeg
+async def test_the_assembly_names_the_shots_a_person_counts_because_the_judge_budget_ran_out(db, tmp_path):
+    from hfvg.activities.media import assemble_mute_edit
+    from hfvg.budget import BudgetLedger
+
+    clips = {"A01": str(make_clip(tmp_path / "A01.mp4", 2.0, MOVING))}
+    edit = await HB().run(assemble_mute_edit, EP, [{"shot_id": "A01", "duration": 2.0}], clips,
+                          str(tmp_path / "edit"))
+    await BudgetLedger(db).ensure_line(EP, "qc_judges", 500_000, stop_usd_micros=1, provider="openai")
+    counter, client = _counter(_cast(1))
+    set_cast_counter(counter)
+    qc = await HB().run(check_assembly_qc, edit["assembly_path"], edit["manifest"], EP, {"A01": lint_meta(1)})
+    assert qc["verdict"] == "NEEDS_REVIEW" and qc["review_shots"] == ["A01"], qc
+    assert qc["judge_budget_used_up"] == ["A01"] and client.calls == []
+    assert qc["reason"].startswith("A01: judge budget used up, a person checks this: "), qc
