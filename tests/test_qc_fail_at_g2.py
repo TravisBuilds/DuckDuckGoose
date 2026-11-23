@@ -164,12 +164,59 @@ async def test_a_judge_failed_still_waits_at_g2_and_is_kept_by_selecting_it(stud
             child_history = await env.client.get_workflow_handle("ep41-shot-A01").fetch_history()
             assert "qc-fail-parks-at-g2-v1" in _patch_markers(child_history)
             episode_history = await handle.fetch_history()
-            assert "g2-keep-qc-failed-still-v1" in _patch_markers(episode_history)
+            assert {"g2-keep-qc-failed-still-v1", "g2-approve-kept-rows-v1"} <= set(_patch_markers(episode_history))
             await _finish(handle)
             for history in (child_history, await handle.fetch_history()):
                 replay = await Replayer(workflows=PRODUCTION_WORKFLOWS,
                                         data_converter=temporal_data_converter).replay_workflow(history)
                 assert replay.replay_failure is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(150)
+async def test_a_kept_judge_failed_still_flows_to_the_clip_run_and_g2_approves_the_rows_people_kept(studio, tmp_path):
+    """A01's judge-failed still is kept by approving the shot: G2 animates it. A02 was rejected and
+    then approved, and its row still says rejected (as on a run whose approve wrote nothing to the
+    DB): G2 approval marks both rows approved and clears the stale rejection reason."""
+    from hfvg.studio_db import approve_g2_shots as real_approve
+
+    rec, judge = Recorder(), Judge(fail={"A01"})
+    after_g2: dict = {}
+
+    @activity.defn(name="approve_g2_shots")
+    async def approve(*args):
+        after_g2["args"] = args
+        after_g2["count"] = await real_approve(*args)
+        after_g2["rows"] = await _rows(studio, args[0])
+        return after_g2["count"]
+
+    async with await WorkflowEnvironment.start_local() as env:
+        async with _worker(env, rec, judge, extra=[approve]):
+            handle = await _to_g2(env, tmp_path, "ep42")
+            await _parked(handle, "A01")
+            await _until_statuses(studio, "ep42", {"A01": "qc_failed", "A02": "still_complete"})
+            await handle.execute_update("reject_shot", args=["A02", "goose off-model"])
+            async with aiosqlite.connect(studio) as db:  # as the reject route records it
+                await db.execute("UPDATE shots SET status = 'rejected', rejection_reason = 'goose off-model' "
+                                 "WHERE episode_id = 'ep42' AND shot_id = 'A02'")
+                await db.commit()
+            await handle.execute_update("approve_shot", args=["A02"])
+            await handle.execute_update("approve_shot", args=["A01"])
+            assert (await handle.query("get_state"))["stills_needing_decision"] == {}
+            await handle.execute_update("approve_g2_scene_stills")
+            await _wait(handle, lambda s: s["current_gate"] == "G_FINAL_CUT", what="G_FINAL_CUT")
+
+            assert after_g2["args"] == ("ep42", [], ["A01", "A02"]), after_g2["args"]
+            assert {s: (r[0], r[2]) for s, r in after_g2["rows"].items()} == {
+                "A01": ("approved", None), "A02": ("approved", None)}, after_g2["rows"]
+            assert after_g2["count"] == 2
+            for shot_id in ("A01", "A02"):
+                result = await _result(env, f"ep42-shot-{shot_id}")
+                assert result["status"] == "completed", result
+                assert len(rec.clips_for(shot_id)) == 1, rec.clip_calls
+            assert {s: (r[0], r[2]) for s, r in (await _rows(studio, "ep42")).items()} == {
+                "A01": ("completed", None), "A02": ("completed", None)}
+            await _finish(handle)
 
 
 @pytest.mark.asyncio

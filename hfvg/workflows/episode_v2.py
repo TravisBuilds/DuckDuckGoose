@@ -54,6 +54,9 @@ RETRY_SHOT_LIMIT_PATCH = "retry-shot-limit-in-validator"
 # At G2 approval, a judge-failed still a person kept gets keep_qc_failed_still before stills_approved
 # (docs/QC-JUDGES.md); a run released before that existed replays without the signal.
 QC_FAIL_KEEP_PATCH = "g2-keep-qc-failed-still-v1"
+# approve_g2_shots also gets the shots a person kept, so their rows are approved whatever status an
+# earlier decision left (Bug 29); a G2 approval recorded before that replays with its old arguments.
+G2_KEPT_ROWS_PATCH = "g2-approve-kept-rows-v1"
 
 
 def enrich_shot_prompts_with_beat_context(shot: dict) -> dict:
@@ -805,9 +808,14 @@ class EpisodeWorkflowV2:
         rejected_ids = sorted(
             sid for sid, decision in self.state.shot_decisions.items() if decision == "rejected"
         )
+        # A shot a person kept (approved, or a version selected) is approved whatever its row says
+        kept_ids = sorted(
+            sid for sid in self.shot_results if self.state.shot_decisions.get(sid) != "rejected"
+            and (self.state.shot_decisions.get(sid) == "approved" or sid in self.still_selections)
+        ) if workflow.patched(G2_KEPT_ROWS_PATCH) else []
         approved_count = await workflow.execute_activity(
             approve_g2_shots,
-            args=[episode_id] + ([rejected_ids] if rejected_ids else []),
+            args=[episode_id] + ([rejected_ids, kept_ids] if kept_ids else [rejected_ids] if rejected_ids else []),
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

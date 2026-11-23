@@ -27,7 +27,7 @@ from hfvg.temporal_converter import temporal_data_converter
 from hfvg.worker import PRODUCTION_WORKFLOWS
 
 FIXTURE = Path(__file__).parent / "fixtures" / "replay" / "g2_judge_fail_and_reapproved.json"
-NEW_PATCHES = {"qc-fail-parks-at-g2-v1", "g2-keep-qc-failed-still-v1"}
+NEW_PATCHES = {"qc-fail-parks-at-g2-v1", "g2-keep-qc-failed-still-v1", "g2-approve-kept-rows-v1"}
 
 
 def _doc() -> dict:

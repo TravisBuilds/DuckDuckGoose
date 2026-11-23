@@ -3875,6 +3875,7 @@ async def approve_still(
                 # "approve" (G-GATE-1 map) on the episode workflow; refusals (not at G2, retry pending,
                 # G2 already approved) come back as 409.
                 result = await _execute_episode_update(episode_id, "approve_shot", [shot_id], "Approve")
+                await _record_g2_keep(episode_id, shot_id, approved=True)
                 await _audit(episode_id, "approve_shot", f"Shot {shot_id} approved at G2")
                 return {"success": True, "shot_id": shot_id, "workflow_type": "episode",
                         "message": result.get("message") if isinstance(result, dict) else "Shot approved"}
@@ -3918,6 +3919,22 @@ async def approve_still(
 # Mark approve_still to allow members
 approve_still.allow_members = True
 
+
+async def _record_g2_keep(episode_id: str, shot_id: str, approved: bool) -> None:
+    """The shot's row once a person kept its still at G2 (an approve, or a version selected), matching
+    the workflow's decision: it no longer says the still was rejected (status and reason) or failed
+    the QC judge. An approve marks it approved; a selection (G2 still to come) puts a rejected or
+    judge-failed row back to still_complete. A failed or blocked shot keeps its status."""
+    status = ("CASE WHEN status IN ('failed', 'blocked') THEN status ELSE 'approved' END" if approved
+              else "CASE WHEN status IN ('rejected', 'qc_failed') THEN 'still_complete' ELSE status END")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"""UPDATE shots SET status = {status}, rejection_reason = NULL, updated_at = datetime('now')
+                WHERE episode_id = ? AND shot_id = ?""",
+            (episode_id, shot_id),
+        )
+        await db.commit()
 
 STUDIO_UPDATING = "The studio is updating. Try again in a minute."
 
@@ -4220,6 +4237,7 @@ async def select_still(
                                                     + "; ".join(problems))
     result = await _execute_episode_update(episode_id, "select_still_version",
                                            [shot_id, request.version, reason], "Still select")
+    await _record_g2_keep(episode_id, shot_id, approved=False)
     await _audit(episode_id, "select_still_version",
                  f"Shot {shot_id} keeps still v{request.version} ({plan.get('workflow_id')}) instead of "
                  f"v{result.get('previous_version') if isinstance(result, dict) else '?'}: {reason}")

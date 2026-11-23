@@ -338,6 +338,7 @@ async def upsert_shot(
 async def approve_g2_shots(
     episode_id: str,
     rejected_shot_ids: list[str] | None = None,
+    kept_shot_ids: list[str] | None = None,
 ) -> int:
     """
     Mark the shots whose stills were reviewed and kept at G2 as approved.
@@ -348,9 +349,14 @@ async def approve_g2_shots(
     Real still statuses at G2 are 'still_complete' / 'needs_review' (record_shot_result), and
     'qc_failed' for a still the QC judge failed, which only a person's decision approves.
 
+    ``kept_shot_ids``: shots a person kept at G2 (approved, or a still version selected). Their
+    decision wins over a status left from before it (a reject undone by an approve, a judge FAIL
+    kept): the row is approved and its rejection reason cleared, unless the shot failed or is blocked.
+
     Args:
         episode_id: Episode ID
         rejected_shot_ids: shot ids rejected at G2 (excluded from approval)
+        kept_shot_ids: shot ids a person kept at G2 (approved whatever their status says)
 
     Returns:
         Number of shots marked as approved
@@ -358,6 +364,7 @@ async def approve_g2_shots(
     import os
     db_path = os.getenv("DATABASE_PATH", "./data/studio.db")
     rejected = sorted(set(rejected_shot_ids or []))
+    kept = sorted(set(kept_shot_ids or []) - set(rejected))
     async with aiosqlite.connect(db_path) as db:
         if rejected:
             marks = ",".join("?" for _ in rejected)
@@ -366,7 +373,17 @@ async def approve_g2_shots(
                     WHERE episode_id = ? AND shot_id IN ({marks})""",
                 (episode_id, *rejected),
             )
-        exclude = ",".join("?" for _ in rejected)
+        count = 0
+        if kept:
+            marks = ",".join("?" for _ in kept)
+            cursor = await db.execute(
+                f"""UPDATE shots SET status = 'approved', rejection_reason = NULL, updated_at = datetime('now')
+                    WHERE episode_id = ? AND shot_id IN ({marks}) AND status NOT IN ('failed', 'blocked')""",
+                (episode_id, *kept),
+            )
+            count += cursor.rowcount
+        decided = rejected + kept
+        exclude = ",".join("?" for _ in decided)
         cursor = await db.execute(
             f"""UPDATE shots 
                SET status = 'approved', updated_at = datetime('now')
@@ -375,10 +392,10 @@ async def approve_g2_shots(
                  AND still_url != ''
                  AND status NOT IN ('rejected', 'failed', 'blocked', 'approved')
                  AND status != 'qc_failed'
-                 {f"AND shot_id NOT IN ({exclude})" if rejected else ""}""",
-            (episode_id, *rejected),
+                 {f"AND shot_id NOT IN ({exclude})" if decided else ""}""",
+            (episode_id, *decided),
         )
-        count = cursor.rowcount
+        count += cursor.rowcount
         await db.commit()
         return count
 
