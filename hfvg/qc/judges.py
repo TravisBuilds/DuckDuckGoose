@@ -11,16 +11,20 @@ Every call goes through ``JudgeService.ask``:
    input, the model id and ``JUDGE_VERSION``) is returned without spending: page loads, G2
    approvals and retried activities never pay twice. A failed call is remembered for
    ``HFVG_QC_JUDGE_RETRY_AFTER_S`` so a broken judge is not paid again on every page load.
-3. Balance gate (``BalanceMonitor.check_preflight_balance("openai", ...)``) before each paid call.
+3. Balance gate (``BalanceMonitor.check_preflight_balance``) for the model's provider before each
+   paid call.
 4. Reserve the estimate (integer micro-dollars, an upper bound) on the episode's ``qc_judges`` line
-   (provider ``openai``, created at the episode's first judge call with ``HFVG_QC_LINE_CAP_USD``):
-   the line's own 80% stop, the episode cap and stop and the GC.01 headroom all apply.
+   (the model's provider, created at the episode's first judge call with ``HFVG_QC_LINE_CAP_USD``,
+   or sized from the episode's shot plan when that is ``auto``, hfvg.qc.judge_budget): the line's
+   own 80% stop, the episode cap and stop and the GC.01 headroom all apply.
 5. The model call, bounded by ``HFVG_QC_JUDGE_TIMEOUT_S`` and heartbeating inside an activity.
 6. Commit the real cost from the response's token usage (the estimate when usage is missing), or
    release the hold when no answer came back.
 
-Any refusal or failure raises ``JudgeUnavailable``; callers turn it into NEEDS_REVIEW. The model
-id comes from ``HFVG_QC_JUDGE_MODEL`` and never appears in a verdict, an issue or a ledger reason.
+Any refusal or failure raises ``JudgeUnavailable`` (``JudgeBudgetExhausted`` when the judge budget
+is used up); callers turn it into NEEDS_REVIEW. The model comes from ``HFVG_QC_JUDGE_MODEL``
+(``provider/model`` or a bare OpenAI model id), is priced by ``HFVG_QC_JUDGE_USD_PER_MTOK_*`` (both
+required for any model but the default) and never appears in a verdict, an issue or a ledger reason.
 """
 
 from __future__ import annotations
@@ -44,7 +48,7 @@ from typing import Any, Callable
 import aiosqlite
 
 from hfvg import subproc
-from hfvg.pricing import usd_to_micros
+from hfvg.pricing import micros_to_usd_str, usd_to_micros
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +66,7 @@ DEFAULT_RETRY_AFTER_S = 300
 LINE_CAP_ENV = "HFVG_QC_LINE_CAP_USD"
 # $44 Higgsfield + $3.50 ElevenLabs default line caps + $0.50 = the default $48 episode stop
 DEFAULT_LINE_CAP_USD = "0.50"
+LINE_CAP_AUTO = "auto"  # size each new line from the episode's shot plan (hfvg.qc.judge_budget)
 PRICE_IN_ENV = "HFVG_QC_JUDGE_USD_PER_MTOK_IN"
 PRICE_OUT_ENV = "HFVG_QC_JUDGE_USD_PER_MTOK_OUT"
 DEFAULT_PRICE_IN_USD = "0.40"
@@ -76,8 +81,8 @@ DEADLINE_ENV = "HFVG_QC_REVIEW_DEADLINE_S"
 DEFAULT_DEADLINE_S = 200.0
 
 QC_LINE = "qc_judges"
-QC_PROVIDER = "openai"
-JUDGE_VERSION = "1"  # bump when a judge's instructions change: cached verdicts are not reused
+DEFAULT_PROVIDER = "openai"  # the provider of a bare model id; the only one with a judge client
+JUDGE_VERSION = "2"  # bump when a judge's instructions change: cached verdicts are not reused
 
 MEDIA_PX = 768   # longest side of a judged still or frame
 REF_PX = 512     # longest side of a reference image
@@ -96,6 +101,11 @@ class JudgeInputError(JudgeUnavailable):
     """The media or a reference could not be read or prepared (missing file, not an image)."""
 
 
+class JudgeBudgetExhausted(JudgeUnavailable):
+    """The budget refused the call because the episode's judge line, or the episode itself, reached
+    its stop or cap. The check goes to a person and its reason says the judge budget is used up."""
+
+
 # ------------------------------------------------------------------------------------------ settings
 
 
@@ -105,6 +115,20 @@ def judges_enabled() -> bool:
 
 def judge_model() -> str:
     return os.getenv(MODEL_ENV, "").strip() or DEFAULT_MODEL
+
+
+def model_parts(setting: str | None = None) -> tuple[str, str]:
+    """(provider, model id) of a model setting: ``provider/model``, or a bare model id (OpenAI)."""
+    raw = (judge_model() if setting is None else setting).strip()
+    provider, sep, model_id = raw.partition("/")
+    if not sep:
+        return DEFAULT_PROVIDER, raw
+    return provider.strip().lower(), model_id.strip()
+
+
+def judge_provider(setting: str | None = None) -> str:
+    """The provider the judge model bills: its budget line and balance gate."""
+    return model_parts(setting)[0]
 
 
 def dry_run() -> bool:
@@ -164,8 +188,12 @@ def max_output_tokens() -> int:
     return _env_int(MAX_OUTPUT_TOKENS_ENV, DEFAULT_MAX_OUTPUT_TOKENS)
 
 
-def qc_line_cap_usd_micros() -> int:
-    cap = usd_to_micros(os.getenv(LINE_CAP_ENV, "").strip() or DEFAULT_LINE_CAP_USD)
+def qc_line_cap_setting() -> int | str:
+    """HFVG_QC_LINE_CAP_USD: a cap in micro-dollars, or ``auto`` (ValueError when invalid)."""
+    raw = os.getenv(LINE_CAP_ENV, "").strip()
+    if raw.lower() == LINE_CAP_AUTO:
+        return LINE_CAP_AUTO
+    cap = usd_to_micros(raw or DEFAULT_LINE_CAP_USD)
     if cap <= 0:
         raise ValueError(f"{LINE_CAP_ENV} must be more than 0")
     return cap
@@ -178,24 +206,34 @@ def _price_micros_per_mtok(env: str, default: str) -> int:
     return price
 
 
-def call_estimate_usd_micros(n_images: int, text_chars: int, output_tokens: int) -> int:
+def judge_prices(model: str | None = None) -> tuple[int, int]:
+    """Micro-dollars per million input and output tokens of the judge model. The defaults price the
+    default model only: any other model needs both price settings, or no call is made (ValueError)."""
+    if model_parts(model) != (DEFAULT_PROVIDER, DEFAULT_MODEL):
+        missing = [env for env in (PRICE_IN_ENV, PRICE_OUT_ENV) if not os.getenv(env, "").strip()]
+        if missing:
+            raise ValueError(f"{' and '.join(missing)} must be set for a judge model other than the default")
+    return (_price_micros_per_mtok(PRICE_IN_ENV, DEFAULT_PRICE_IN_USD),
+            _price_micros_per_mtok(PRICE_OUT_ENV, DEFAULT_PRICE_OUT_USD))
+
+
+def call_estimate_usd_micros(n_images: int, text_chars: int, output_tokens: int, model: str | None = None) -> int:
     """Upper bound of one call (the reservation): text at 1 token per 3 characters plus overhead,
     HFVG_QC_JUDGE_IMAGE_TOKENS per image, the full output allowance. Raises ValueError when the
     price settings are invalid (the call is then refused, never made unpriced)."""
     image_tokens = _env_int(IMAGE_TOKENS_ENV, DEFAULT_IMAGE_TOKENS)
     tokens_in = math.ceil(text_chars / TEXT_CHARS_PER_TOKEN) + TEXT_OVERHEAD_TOKENS + n_images * image_tokens
-    return max(1, _cost_micros(tokens_in, output_tokens))
+    return max(1, _cost_micros(tokens_in, output_tokens, model))
 
 
-def _cost_micros(tokens_in: int, tokens_out: int) -> int:
-    price_in = _price_micros_per_mtok(PRICE_IN_ENV, DEFAULT_PRICE_IN_USD)
-    price_out = _price_micros_per_mtok(PRICE_OUT_ENV, DEFAULT_PRICE_OUT_USD)
+def _cost_micros(tokens_in: int, tokens_out: int, model: str | None = None) -> int:
+    price_in, price_out = judge_prices(model)
     return -(-(tokens_in * price_in + tokens_out * price_out) // 1_000_000)
 
 
-def actual_usd_micros(tokens_in: int, tokens_out: int) -> int:
+def actual_usd_micros(tokens_in: int, tokens_out: int, model: str | None = None) -> int:
     """Cost of an answered call from the response's token usage (rounded up to a micro-dollar)."""
-    return _cost_micros(max(0, int(tokens_in)), max(0, int(tokens_out)))
+    return _cost_micros(max(0, int(tokens_in)), max(0, int(tokens_out)), model)
 
 
 # ------------------------------------------------------------------------------------------ media
@@ -452,6 +490,48 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# First in the message: the checks cut a refusal's text at 200 characters.
+BUDGET_USED_UP = "judge budget used up, a person checks this"
+
+
+def _budget_limit(e: ValueError) -> bool:
+    """A reserve refused at the line cap or the episode cap (not the GC.01 headroom or balance)."""
+    text = str(e)
+    return text.startswith("Budget cap exceeded") or "would exceed episode cap" in text
+
+
+async def _stop_detail(ledger: Any, episode_id: str, estimate: int) -> str:
+    try:
+        line = await ledger.get_line_status(episode_id, QC_LINE)
+    except Exception:  # noqa: BLE001 - the refusal stands; this only explains it
+        return "the episode stop"
+    used, stop = line["total_committed"], line["stop_threshold"]
+    if used + estimate > stop:
+        return f"the {QC_LINE} line: ${micros_to_usd_str(used)} spent or held of its ${micros_to_usd_str(stop)} stop"
+    return "the episode stop"
+
+
+async def _new_line_cap(ledger: Any, episode_id: str, setting: int | str, model: str) -> int:
+    """The cap ``ensure_line`` gives the episode's line when it creates it (an existing line keeps
+    its own). ``auto``: sized from the episode's shot plan, or the default cap when it cannot be."""
+    if setting != LINE_CAP_AUTO:
+        return int(setting)
+    default = usd_to_micros(DEFAULT_LINE_CAP_USD)
+    try:
+        await ledger.get_line_status(episode_id, QC_LINE)
+        return default
+    except Exception:  # noqa: BLE001 - no line yet (or no ledger yet): ensure_line creates it
+        pass
+    from hfvg.qc.judge_budget import episode_line_cap_usd_micros
+
+    try:
+        return await asyncio.to_thread(episode_line_cap_usd_micros, episode_id, model)
+    except Exception as e:  # noqa: BLE001 - an unsized line gets the default cap, never none
+        logger.warning(f"QC judge line of {episode_id} not sized from its shot plan ({str(e)[:200]}): "
+                       f"default cap ${DEFAULT_LINE_CAP_USD}")
+        return default
+
+
 class JudgeService:
     """The one way a QC judge spends: cache, balance gate, ledger hold, call, commit or release."""
 
@@ -473,6 +553,9 @@ class JudgeService:
     def client(self) -> JudgeClient:
         if self._client is not None:
             return self._client
+        provider = judge_provider(self.model)
+        if provider != DEFAULT_PROVIDER:
+            raise JudgeUnavailable(f"no QC judge client for the provider {provider!r} named in {MODEL_ENV}")
         key = os.getenv("OPENAI_API_KEY", "").strip()
         if not key:
             raise JudgeUnavailable("QC judges are on but no judge API key is configured (OPENAI_API_KEY)")
@@ -537,18 +620,21 @@ class JudgeService:
         if not call.episode_id:
             raise JudgeUnavailable("a judge call needs an episode budget line (no episode id)")
         client = self.client()
+        provider, model_id = model_parts(model)
         try:
             out_tokens = call.max_output_tokens or max_output_tokens()
-            estimate = call_estimate_usd_micros(len(call.images), len(call.system) + len(call.text), out_tokens)
-            cap = qc_line_cap_usd_micros()
+            estimate = call_estimate_usd_micros(len(call.images), len(call.system) + len(call.text), out_tokens,
+                                                model)
+            cap_setting = qc_line_cap_setting()
             timeout = judge_timeout_s()
         except (TypeError, ValueError) as e:
             raise JudgeUnavailable(f"QC judge settings invalid, no cost estimate or time limit: {e}") from None
         ledger = BudgetLedger(self.db_path)
         try:
-            await ledger.ensure_line(call.episode_id, QC_LINE, cap, provider=QC_PROVIDER)
+            cap = await _new_line_cap(ledger, call.episode_id, cap_setting, model)
+            await ledger.ensure_line(call.episode_id, QC_LINE, cap, provider=provider)
             passed, reason = await BalanceMonitor(self.db_path).check_preflight_balance(
-                provider=QC_PROVIDER, estimate_usd_micros=estimate, auto_topup_enabled=False)
+                provider=provider, estimate_usd_micros=estimate, auto_topup_enabled=False)
         except Exception as e:  # noqa: BLE001 - no ledger or gate, no paid call
             raise JudgeUnavailable(f"QC budget line or balance check unavailable ({type(e).__name__})") from None
         if not passed:
@@ -558,14 +644,17 @@ class JudgeService:
         try:
             reserved = await ledger.reserve(call.episode_id, QC_LINE, estimate, what, job_id=call_id)
         except ValueError as e:
-            raise JudgeUnavailable(f"budget refused the judge call: {e}") from None
+            if not _budget_limit(e):
+                raise JudgeUnavailable(f"budget refused the judge call: {e}") from None
+            raise JudgeBudgetExhausted(f"{BUDGET_USED_UP}: budget refused the judge call: {e}") from None
         if not reserved:
-            raise JudgeUnavailable(f"budget refused the judge call: the {QC_LINE} line or the episode "
-                                   "is at its stop")
+            where = await _stop_detail(ledger, call.episode_id, estimate)
+            raise JudgeBudgetExhausted(f"{BUDGET_USED_UP}: budget refused the judge call: the {QC_LINE} line or "
+                                       f"the episode is at its stop ({where})")
         try:
             self.calls_made += 1
             reply = await subproc.keep_alive(
-                asyncio.wait_for(client.complete(model=model, system=call.system, text=call.text,
+                asyncio.wait_for(client.complete(model=model_id, system=call.system, text=call.text,
                                                  images=call.images, max_output_tokens=out_tokens), timeout),
                 f"QC {call.kind} judge")
         except asyncio.CancelledError:
@@ -578,7 +667,7 @@ class JudgeService:
             await self._store(key, call, error=error)
             raise JudgeUnavailable(error) from None
         if reply.tokens_in is not None and reply.tokens_out is not None:
-            actual, source = actual_usd_micros(reply.tokens_in, reply.tokens_out), "token_usage"
+            actual, source = actual_usd_micros(reply.tokens_in, reply.tokens_out, model), "token_usage"
         else:
             actual, source = estimate, "estimate"
         await ledger.commit(call.episode_id, QC_LINE, estimate, actual, job_id=call_id, reason=what,
@@ -601,11 +690,11 @@ def register_qc_judges(process: str = "worker", service: JudgeService | None = N
     counter, which the G2 and recompose headcount read). Off: registers nothing. True when registered."""
     if not judges_enabled():
         return False
-    from hfvg.qc.animal_count import set_animal_counter
-    from hfvg.qc.vision_counter import VisionAnimalCounter
+    from hfvg.qc.headcount import set_cast_counter
+    from hfvg.qc.vision_counter import VisionCastCounter
 
     service = service or JudgeService()
-    set_animal_counter(VisionAnimalCounter(service))
+    set_cast_counter(VisionCastCounter(service))
     if process == "worker":
         from hfvg.qc.clip_constraints import set_constraint_checker
         from hfvg.qc.identity import (

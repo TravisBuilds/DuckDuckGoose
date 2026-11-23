@@ -286,7 +286,7 @@ See [`.env.example`](.env.example) for all available environment variables.
 - `OPENAI_API_KEY`: draft from idea, story shaping, the voice picker and the QC judges
 
 **Automated QC judges** ([docs/QC-JUDGES.md](docs/QC-JUDGES.md)):
-- `HFVG_QC_JUDGES_ENABLED` (default false), `HFVG_QC_JUDGE_MODEL`, `HFVG_QC_LINE_CAP_USD` (default 0.50, the episode's `qc_judges` budget line)
+- `HFVG_QC_JUDGES_ENABLED` (default false), `HFVG_QC_JUDGE_MODEL` (`provider/model` or an OpenAI model id; any model but the default needs `HFVG_QC_JUDGE_USD_PER_MTOK_IN` / `_OUT`), `HFVG_QC_LINE_CAP_USD` (default 0.50, or `auto`: the episode's `qc_judges` budget line)
 
 **Budget (USD decimal strings):**
 - `EPISODE_CAP_USD` (default 60.00), `EPISODE_STOP_PERCENT` (default 80 -> $48.00), `GC01_HEADROOM_USD` (default 5.00), `REVISION_RESERVE_USD` (default 10.00)

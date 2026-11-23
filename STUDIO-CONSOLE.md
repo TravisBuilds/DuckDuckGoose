@@ -61,7 +61,7 @@ This document tracks the implementation of the studio console for Episode 4 prod
 - ✅ `hfvg/ledger.py`: Idempotent job tracking
 - ✅ `hfvg/workflows/episode_v2.py`: EpisodeWorkflowV2 with approval signals
 - ✅ `hfvg/qc/motion.py`: G4.10 motion check (stillgate thresholds, implemented in-repo)
-- ✅ `hfvg/qc/identity.py`: identity gate for any locked character (the duck host is one profile in `hfvg/qc/duck_identity.py`), with the other vision judges behind `HFVG_QC_JUDGES_ENABLED` ([docs/QC-JUDGES.md](docs/QC-JUDGES.md))
+- ✅ `hfvg/qc/identity.py`: identity gate for any locked character, whatever it is (`hfvg/qc/duck_identity.py` keeps the first series' duck host gate as a compatibility shim), with the other vision judges behind `HFVG_QC_JUDGES_ENABLED` ([docs/QC-JUDGES.md](docs/QC-JUDGES.md))
 - ✅ `hfvg/qc/prompt_validation.py`: Prompt validation rules
 
 ## 🚧 What Needs Implementation

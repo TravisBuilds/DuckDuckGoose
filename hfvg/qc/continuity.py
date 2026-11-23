@@ -2,8 +2,8 @@
 
 Check names (``CONTINUITY_CHECKS``):
 
-- ``headcount``           animal count (shot_meta.count) + duck presence (shot_meta.duck) through the
-                          AnimalCounter interface (hfvg.qc.animal_count)
+- ``headcount``           every figure the shot declares counted as declared, no unexpected figure,
+                          through the CastCounter interface (hfvg.qc.headcount)
 - ``relative_size``       the characters' relative size order stays consistent across shots
 - ``left_to_right_order`` the characters' left-to-right order stays consistent across shots
 
@@ -35,7 +35,7 @@ RELATIVE_SIZE = "relative_size"
 LEFT_TO_RIGHT_ORDER = "left_to_right_order"
 CONTINUITY_CHECKS = (HEADCOUNT, RELATIVE_SIZE, LEFT_TO_RIGHT_ORDER)
 DEFAULT_HARD_CHECKS = (HEADCOUNT,)
-# Checks answered by a ContinuityChecker (headcount uses the AnimalCounter instead)
+# Checks answered by a ContinuityChecker (headcount uses the CastCounter instead)
 CHECKER_CHECKS = (RELATIVE_SIZE, LEFT_TO_RIGHT_ORDER)
 DEFAULT_CONFIDENCE_THRESHOLD = 0.7
 
