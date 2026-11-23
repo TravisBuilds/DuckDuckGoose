@@ -1,0 +1,766 @@
+{
+ "demo": [
+  {
+   "prompt": "absent duck with A, B, C WIDE, locked. Three animals rest poolside in Outdoor warm pool, timber deck (Winter afternoon, snowfall)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     1
+    ],
+    [
+     "shot_id",
+     "A01"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     5.5
+    ],
+    [
+     "gen_time",
+     6.0
+    ],
+    [
+     "room",
+     "Outdoor warm pool, timber deck"
+    ],
+    [
+     "tod",
+     "Winter afternoon, snowfall"
+    ],
+    [
+     "characters",
+     [
+      "A",
+      "B",
+      "C"
+     ]
+    ],
+    [
+     "action",
+     "WIDE, locked. Three animals rest poolside"
+    ],
+    [
+     "purpose",
+     "Establish scene"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     []
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "absent"
+    ]
+   ]
+  },
+  {
+   "prompt": "host duck with D, A, B, C MEDIUM from deck. Subject walks in frame LEFT, places item on deck edge, nods, exits LEFT in Same pool, timber deck edge (Same, continuous)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     2
+    ],
+    [
+     "shot_id",
+     "A02"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     5.0
+    ],
+    [
+     "gen_time",
+     5.0
+    ],
+    [
+     "room",
+     "Same pool, timber deck edge"
+    ],
+    [
+     "tod",
+     "Same, continuous"
+    ],
+    [
+     "characters",
+     [
+      "D",
+      "A",
+      "B",
+      "C"
+     ]
+    ],
+    [
+     "action",
+     "MEDIUM from deck. Subject walks in frame LEFT, places item on deck edge, nods, exits LEFT"
+    ],
+    [
+     "purpose",
+     "Service interaction"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     []
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     true
+    ],
+    [
+     "duck_role",
+     "host"
+    ]
+   ]
+  },
+  {
+   "prompt": "absent duck with C, B, A CLOSE-UP at water level. Subject opens one eye, interacts with floating item, brief nibble in Same pool, water level (Same)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     3
+    ],
+    [
+     "shot_id",
+     "A03"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     4.0
+    ],
+    [
+     "gen_time",
+     4.0
+    ],
+    [
+     "room",
+     "Same pool, water level"
+    ],
+    [
+     "tod",
+     "Same"
+    ],
+    [
+     "characters",
+     [
+      "C",
+      "B",
+      "A"
+     ]
+    ],
+    [
+     "action",
+     "CLOSE-UP at water level. Subject opens one eye, interacts with floating item, brief nibble"
+    ],
+    [
+     "purpose",
+     "Detail moment"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     []
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "absent"
+    ]
+   ]
+  },
+  {
+   "prompt": "host duck with D, A, B, C ENDING: continuous calm take. Subject stands by light post, watching calmly. Logo watermark visible last 6.5s in Same pool, high wide from deck end (Same, lights on)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     4
+    ],
+    [
+     "shot_id",
+     "A04"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     9.5
+    ],
+    [
+     "gen_time",
+     10.0
+    ],
+    [
+     "room",
+     "Same pool, high wide from deck end"
+    ],
+    [
+     "tod",
+     "Same, lights on"
+    ],
+    [
+     "characters",
+     [
+      "D",
+      "A",
+      "B",
+      "C"
+     ]
+    ],
+    [
+     "action",
+     "ENDING: continuous calm take. Subject stands by light post, watching calmly. Logo watermark visible last 6.5s"
+    ],
+    [
+     "purpose",
+     "Calm resolve"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     []
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "host"
+    ]
+   ]
+  }
+ ],
+ "prompt_only": [
+  "Scene unknown",
+  "Scene Z9",
+  "absent duck with A",
+  "A, B",
+  "A in Lobby",
+  "host duck Waves in Deck (Dusk)"
+ ],
+ "synthetic": [
+  {
+   "prompt": "host duck with D The host waves at the door in Lobby (Dusk)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     1
+    ],
+    [
+     "shot_id",
+     "A01"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     6.0
+    ],
+    [
+     "gen_time",
+     6.0
+    ],
+    [
+     "room",
+     "Lobby"
+    ],
+    [
+     "tod",
+     "Dusk"
+    ],
+    [
+     "characters",
+     [
+      "D"
+     ]
+    ],
+    [
+     "action",
+     "The host waves at the door"
+    ],
+    [
+     "purpose",
+     "Welcome"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     []
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "host"
+    ]
+   ]
+  },
+  {
+   "prompt": "host duck with D, A, B Guests soak in the steaming pool in Pool (Night)",
+   "routing": {
+    "draft": true,
+    "model": "seedance_2.5",
+    "reason": "Seedance for dry multi-char (BEATMAP S, hero=False)",
+    "resolution": "720p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     2
+    ],
+    [
+     "shot_id",
+     "A02"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     5.0
+    ],
+    [
+     "gen_time",
+     5.0
+    ],
+    [
+     "room",
+     "Pool"
+    ],
+    [
+     "tod",
+     "Night"
+    ],
+    [
+     "characters",
+     [
+      "D",
+      "A",
+      "B"
+     ]
+    ],
+    [
+     "action",
+     "Guests soak in the steaming pool"
+    ],
+    [
+     "purpose",
+     "Rest"
+    ],
+    [
+     "model",
+     "S"
+    ],
+    [
+     "tags",
+     [
+      "soak"
+     ]
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     true
+    ],
+    [
+     "duck_role",
+     "host"
+    ]
+   ]
+  },
+  {
+   "prompt": "host duck with K, D Splash at the surface, wet fur in Spring (Dawn)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     3
+    ],
+    [
+     "shot_id",
+     "A03"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     4.5
+    ],
+    [
+     "gen_time",
+     5.0
+    ],
+    [
+     "room",
+     "Spring"
+    ],
+    [
+     "tod",
+     "Dawn"
+    ],
+    [
+     "characters",
+     [
+      "K",
+      "D"
+     ]
+    ],
+    [
+     "action",
+     "Splash at the surface, wet fur"
+    ],
+    [
+     "purpose",
+     "Play"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     [
+      "soak",
+      "wet"
+     ]
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "host"
+    ]
+   ]
+  },
+  {
+   "prompt": "absent duck Empty deck, mud by the steps in Deck (Noon)",
+   "routing": {
+    "draft": false,
+    "model": "kling_3.0",
+    "reason": "Kling for wet/landscape (BEATMAP K, draft=final)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     4
+    ],
+    [
+     "shot_id",
+     "A04"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     6.0
+    ],
+    [
+     "gen_time",
+     6.0
+    ],
+    [
+     "room",
+     "Deck"
+    ],
+    [
+     "tod",
+     "Noon"
+    ],
+    [
+     "characters",
+     []
+    ],
+    [
+     "action",
+     "Empty deck, mud by the steps"
+    ],
+    [
+     "purpose",
+     "Pause"
+    ],
+    [
+     "model",
+     "K"
+    ],
+    [
+     "tags",
+     [
+      "mud"
+     ]
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "absent"
+    ]
+   ]
+  },
+  {
+   "prompt": "absent duck with AG, M1, M2 Hand-off ★ underwater lamp in Hall (Dusk)",
+   "routing": {
+    "draft": true,
+    "model": "seedance_2.5",
+    "reason": "Seedance for dry multi-char (BEATMAP S, hero=True)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     5
+    ],
+    [
+     "shot_id",
+     "A05"
+    ],
+    [
+     "scene_id",
+     "A"
+    ],
+    [
+     "screen_time",
+     3.0
+    ],
+    [
+     "gen_time",
+     3.0
+    ],
+    [
+     "room",
+     "Hall"
+    ],
+    [
+     "tod",
+     "Dusk"
+    ],
+    [
+     "characters",
+     [
+      "AG",
+      "M1",
+      "M2"
+     ]
+    ],
+    [
+     "action",
+     "Hand-off ★ underwater lamp"
+    ],
+    [
+     "purpose",
+     "Turn"
+    ],
+    [
+     "model",
+     "S"
+    ],
+    [
+     "tags",
+     [
+      "underwater"
+     ]
+    ],
+    [
+     "is_handoff",
+     true
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "absent"
+    ]
+   ]
+  },
+  {
+   "prompt": "absent duck with W A slow look at the stars in Roof (Night)",
+   "routing": {
+    "draft": true,
+    "model": "seedance_2.5",
+    "reason": "Seedance for dry multi-char (BEATMAP S, hero=True)",
+    "resolution": "1080p"
+   },
+   "shot": [
+    [
+     "shot_num",
+     6
+    ],
+    [
+     "shot_id",
+     "F02"
+    ],
+    [
+     "scene_id",
+     "F"
+    ],
+    [
+     "screen_time",
+     7.0
+    ],
+    [
+     "gen_time",
+     7.0
+    ],
+    [
+     "room",
+     "Roof"
+    ],
+    [
+     "tod",
+     "Night"
+    ],
+    [
+     "characters",
+     [
+      "W"
+     ]
+    ],
+    [
+     "action",
+     "A slow look at the stars"
+    ],
+    [
+     "purpose",
+     "End"
+    ],
+    [
+     "model",
+     "S"
+    ],
+    [
+     "tags",
+     []
+    ],
+    [
+     "is_handoff",
+     false
+    ],
+    [
+     "has_end_frame",
+     false
+    ],
+    [
+     "duck_role",
+     "absent"
+    ]
+   ]
+  }
+ ]
+}

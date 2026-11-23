@@ -1,0 +1,5428 @@
+{
+ "grid": {
+  "cases": {
+   "default/bath/antler_flag": 0,
+   "default/bath/antler_only_flag": 0,
+   "default/bath/bath_false": 1,
+   "default/bath/bath_true": 2,
+   "default/bath/count_bool": 3,
+   "default/bath/count_none": 3,
+   "default/bath/host_chars": 2,
+   "default/bath/host_flag": 4,
+   "default/bath/otter_char": 2,
+   "default/bath/plain": 1,
+   "default/bath/wet_water": 1,
+   "default/clean/antler_flag": 5,
+   "default/clean/antler_only_flag": 5,
+   "default/clean/bath_false": 6,
+   "default/clean/bath_true": 7,
+   "default/clean/count_bool": 8,
+   "default/clean/count_none": 8,
+   "default/clean/host_chars": 7,
+   "default/clean/host_flag": 9,
+   "default/clean/otter_char": 7,
+   "default/clean/plain": 6,
+   "default/clean/wet_water": 6,
+   "default/hard_stop/antler_flag": 10,
+   "default/hard_stop/antler_only_flag": 10,
+   "default/hard_stop/bath_false": 11,
+   "default/hard_stop/bath_true": 12,
+   "default/hard_stop/count_bool": 13,
+   "default/hard_stop/count_none": 13,
+   "default/hard_stop/host_chars": 12,
+   "default/hard_stop/host_flag": 14,
+   "default/hard_stop/otter_char": 12,
+   "default/hard_stop/plain": 11,
+   "default/hard_stop/wet_water": 11,
+   "default/locks_partial/antler_flag": 15,
+   "default/locks_partial/antler_only_flag": 15,
+   "default/locks_partial/bath_false": 16,
+   "default/locks_partial/bath_true": 17,
+   "default/locks_partial/count_bool": 18,
+   "default/locks_partial/count_none": 18,
+   "default/locks_partial/host_chars": 17,
+   "default/locks_partial/host_flag": 19,
+   "default/locks_partial/otter_char": 17,
+   "default/locks_partial/plain": 16,
+   "default/locks_partial/wet_water": 16,
+   "default/plain/antler_flag": 20,
+   "default/plain/antler_only_flag": 20,
+   "default/plain/bath_false": 21,
+   "default/plain/bath_true": 22,
+   "default/plain/count_bool": 23,
+   "default/plain/count_none": 23,
+   "default/plain/host_chars": 22,
+   "default/plain/host_flag": 24,
+   "default/plain/otter_char": 22,
+   "default/plain/plain": 21,
+   "default/plain/wet_water": 21,
+   "default/realism_edges/antler_flag": 25,
+   "default/realism_edges/antler_only_flag": 25,
+   "default/realism_edges/bath_false": 26,
+   "default/realism_edges/bath_true": 27,
+   "default/realism_edges/count_bool": 28,
+   "default/realism_edges/count_none": 28,
+   "default/realism_edges/host_chars": 27,
+   "default/realism_edges/host_flag": 29,
+   "default/realism_edges/otter_char": 27,
+   "default/realism_edges/plain": 26,
+   "default/realism_edges/wet_water": 26,
+   "default/realism_long/antler_flag": 30,
+   "default/realism_long/antler_only_flag": 30,
+   "default/realism_long/bath_false": 31,
+   "default/realism_long/bath_true": 32,
+   "default/realism_long/count_bool": 33,
+   "default/realism_long/count_none": 33,
+   "default/realism_long/host_chars": 32,
+   "default/realism_long/host_flag": 34,
+   "default/realism_long/otter_char": 32,
+   "default/realism_long/plain": 31,
+   "default/realism_long/wet_water": 31,
+   "default/semicolon_carry/antler_flag": 35,
+   "default/semicolon_carry/antler_only_flag": 35,
+   "default/semicolon_carry/bath_false": 36,
+   "default/semicolon_carry/bath_true": 37,
+   "default/semicolon_carry/count_bool": 38,
+   "default/semicolon_carry/count_none": 38,
+   "default/semicolon_carry/host_chars": 37,
+   "default/semicolon_carry/host_flag": 39,
+   "default/semicolon_carry/otter_char": 37,
+   "default/semicolon_carry/plain": 36,
+   "default/semicolon_carry/wet_water": 36,
+   "default/waves/antler_flag": 40,
+   "default/waves/antler_only_flag": 40,
+   "default/waves/bath_false": 41,
+   "default/waves/bath_true": 42,
+   "default/waves/count_bool": 43,
+   "default/waves/count_none": 43,
+   "default/waves/host_chars": 42,
+   "default/waves/host_flag": 44,
+   "default/waves/otter_char": 42,
+   "default/waves/plain": 41,
+   "default/waves/wet_water": 41,
+   "default_nolocks/bath/antler_flag": 45,
+   "default_nolocks/bath/antler_only_flag": 45,
+   "default_nolocks/bath/bath_false": 46,
+   "default_nolocks/bath/bath_true": 46,
+   "default_nolocks/bath/count_bool": 47,
+   "default_nolocks/bath/count_none": 47,
+   "default_nolocks/bath/host_chars": 46,
+   "default_nolocks/bath/host_flag": 48,
+   "default_nolocks/bath/otter_char": 46,
+   "default_nolocks/bath/plain": 46,
+   "default_nolocks/bath/wet_water": 46,
+   "default_nolocks/clean/antler_flag": 49,
+   "default_nolocks/clean/antler_only_flag": 49,
+   "default_nolocks/clean/bath_false": 50,
+   "default_nolocks/clean/bath_true": 50,
+   "default_nolocks/clean/count_bool": 51,
+   "default_nolocks/clean/count_none": 51,
+   "default_nolocks/clean/host_chars": 50,
+   "default_nolocks/clean/host_flag": 52,
+   "default_nolocks/clean/otter_char": 50,
+   "default_nolocks/clean/plain": 50,
+   "default_nolocks/clean/wet_water": 50,
+   "default_nolocks/hard_stop/antler_flag": 53,
+   "default_nolocks/hard_stop/antler_only_flag": 53,
+   "default_nolocks/hard_stop/bath_false": 54,
+   "default_nolocks/hard_stop/bath_true": 54,
+   "default_nolocks/hard_stop/count_bool": 55,
+   "default_nolocks/hard_stop/count_none": 55,
+   "default_nolocks/hard_stop/host_chars": 54,
+   "default_nolocks/hard_stop/host_flag": 56,
+   "default_nolocks/hard_stop/otter_char": 54,
+   "default_nolocks/hard_stop/plain": 54,
+   "default_nolocks/hard_stop/wet_water": 54,
+   "default_nolocks/locks_partial/antler_flag": 57,
+   "default_nolocks/locks_partial/antler_only_flag": 57,
+   "default_nolocks/locks_partial/bath_false": 58,
+   "default_nolocks/locks_partial/bath_true": 58,
+   "default_nolocks/locks_partial/count_bool": 59,
+   "default_nolocks/locks_partial/count_none": 59,
+   "default_nolocks/locks_partial/host_chars": 58,
+   "default_nolocks/locks_partial/host_flag": 60,
+   "default_nolocks/locks_partial/otter_char": 58,
+   "default_nolocks/locks_partial/plain": 58,
+   "default_nolocks/locks_partial/wet_water": 58,
+   "default_nolocks/plain/antler_flag": 61,
+   "default_nolocks/plain/antler_only_flag": 61,
+   "default_nolocks/plain/bath_false": 62,
+   "default_nolocks/plain/bath_true": 62,
+   "default_nolocks/plain/count_bool": 63,
+   "default_nolocks/plain/count_none": 63,
+   "default_nolocks/plain/host_chars": 62,
+   "default_nolocks/plain/host_flag": 64,
+   "default_nolocks/plain/otter_char": 62,
+   "default_nolocks/plain/plain": 62,
+   "default_nolocks/plain/wet_water": 62,
+   "default_nolocks/realism_edges/antler_flag": 65,
+   "default_nolocks/realism_edges/antler_only_flag": 65,
+   "default_nolocks/realism_edges/bath_false": 66,
+   "default_nolocks/realism_edges/bath_true": 66,
+   "default_nolocks/realism_edges/count_bool": 67,
+   "default_nolocks/realism_edges/count_none": 67,
+   "default_nolocks/realism_edges/host_chars": 66,
+   "default_nolocks/realism_edges/host_flag": 68,
+   "default_nolocks/realism_edges/otter_char": 66,
+   "default_nolocks/realism_edges/plain": 66,
+   "default_nolocks/realism_edges/wet_water": 66,
+   "default_nolocks/realism_long/antler_flag": 69,
+   "default_nolocks/realism_long/antler_only_flag": 69,
+   "default_nolocks/realism_long/bath_false": 70,
+   "default_nolocks/realism_long/bath_true": 70,
+   "default_nolocks/realism_long/count_bool": 71,
+   "default_nolocks/realism_long/count_none": 71,
+   "default_nolocks/realism_long/host_chars": 70,
+   "default_nolocks/realism_long/host_flag": 72,
+   "default_nolocks/realism_long/otter_char": 70,
+   "default_nolocks/realism_long/plain": 70,
+   "default_nolocks/realism_long/wet_water": 70,
+   "default_nolocks/semicolon_carry/antler_flag": 73,
+   "default_nolocks/semicolon_carry/antler_only_flag": 73,
+   "default_nolocks/semicolon_carry/bath_false": 74,
+   "default_nolocks/semicolon_carry/bath_true": 74,
+   "default_nolocks/semicolon_carry/count_bool": 75,
+   "default_nolocks/semicolon_carry/count_none": 75,
+   "default_nolocks/semicolon_carry/host_chars": 74,
+   "default_nolocks/semicolon_carry/host_flag": 76,
+   "default_nolocks/semicolon_carry/otter_char": 74,
+   "default_nolocks/semicolon_carry/plain": 74,
+   "default_nolocks/semicolon_carry/wet_water": 74,
+   "default_nolocks/waves/antler_flag": 77,
+   "default_nolocks/waves/antler_only_flag": 77,
+   "default_nolocks/waves/bath_false": 78,
+   "default_nolocks/waves/bath_true": 78,
+   "default_nolocks/waves/count_bool": 79,
+   "default_nolocks/waves/count_none": 79,
+   "default_nolocks/waves/host_chars": 78,
+   "default_nolocks/waves/host_flag": 80,
+   "default_nolocks/waves/otter_char": 78,
+   "default_nolocks/waves/plain": 78,
+   "default_nolocks/waves/wet_water": 78,
+   "series/bath/antler_flag": 81,
+   "series/bath/antler_only_flag": 82,
+   "series/bath/bath_false": 83,
+   "series/bath/bath_true": 84,
+   "series/bath/count_bool": 3,
+   "series/bath/count_none": 3,
+   "series/bath/host_chars": 85,
+   "series/bath/host_flag": 86,
+   "series/bath/otter_char": 87,
+   "series/bath/plain": 88,
+   "series/bath/wet_water": 89,
+   "series/clean/antler_flag": 90,
+   "series/clean/antler_only_flag": 91,
+   "series/clean/bath_false": 92,
+   "series/clean/bath_true": 93,
+   "series/clean/count_bool": 8,
+   "series/clean/count_none": 8,
+   "series/clean/host_chars": 94,
+   "series/clean/host_flag": 95,
+   "series/clean/otter_char": 96,
+   "series/clean/plain": 6,
+   "series/clean/wet_water": 97,
+   "series/hard_stop/antler_flag": 98,
+   "series/hard_stop/antler_only_flag": 99,
+   "series/hard_stop/bath_false": 100,
+   "series/hard_stop/bath_true": 101,
+   "series/hard_stop/count_bool": 102,
+   "series/hard_stop/count_none": 102,
+   "series/hard_stop/host_chars": 103,
+   "series/hard_stop/host_flag": 104,
+   "series/hard_stop/otter_char": 105,
+   "series/hard_stop/plain": 106,
+   "series/hard_stop/wet_water": 107,
+   "series/locks_partial/antler_flag": 108,
+   "series/locks_partial/antler_only_flag": 109,
+   "series/locks_partial/bath_false": 110,
+   "series/locks_partial/bath_true": 111,
+   "series/locks_partial/count_bool": 18,
+   "series/locks_partial/count_none": 18,
+   "series/locks_partial/host_chars": 112,
+   "series/locks_partial/host_flag": 113,
+   "series/locks_partial/otter_char": 114,
+   "series/locks_partial/plain": 16,
+   "series/locks_partial/wet_water": 115,
+   "series/plain/antler_flag": 116,
+   "series/plain/antler_only_flag": 117,
+   "series/plain/bath_false": 118,
+   "series/plain/bath_true": 119,
+   "series/plain/count_bool": 120,
+   "series/plain/count_none": 120,
+   "series/plain/host_chars": 121,
+   "series/plain/host_flag": 122,
+   "series/plain/otter_char": 123,
+   "series/plain/plain": 124,
+   "series/plain/wet_water": 125,
+   "series/realism_edges/antler_flag": 126,
+   "series/realism_edges/antler_only_flag": 127,
+   "series/realism_edges/bath_false": 128,
+   "series/realism_edges/bath_true": 129,
+   "series/realism_edges/count_bool": 28,
+   "series/realism_edges/count_none": 28,
+   "series/realism_edges/host_chars": 130,
+   "series/realism_edges/host_flag": 131,
+   "series/realism_edges/otter_char": 26,
+   "series/realism_edges/plain": 132,
+   "series/realism_edges/wet_water": 133,
+   "series/realism_long/antler_flag": 134,
+   "series/realism_long/antler_only_flag": 135,
+   "series/realism_long/bath_false": 136,
+   "series/realism_long/bath_true": 137,
+   "series/realism_long/count_bool": 33,
+   "series/realism_long/count_none": 33,
+   "series/realism_long/host_chars": 138,
+   "series/realism_long/host_flag": 139,
+   "series/realism_long/otter_char": 140,
+   "series/realism_long/plain": 31,
+   "series/realism_long/wet_water": 141,
+   "series/semicolon_carry/antler_flag": 142,
+   "series/semicolon_carry/antler_only_flag": 143,
+   "series/semicolon_carry/bath_false": 144,
+   "series/semicolon_carry/bath_true": 145,
+   "series/semicolon_carry/count_bool": 146,
+   "series/semicolon_carry/count_none": 146,
+   "series/semicolon_carry/host_chars": 147,
+   "series/semicolon_carry/host_flag": 148,
+   "series/semicolon_carry/otter_char": 149,
+   "series/semicolon_carry/plain": 150,
+   "series/semicolon_carry/wet_water": 151,
+   "series/waves/antler_flag": 152,
+   "series/waves/antler_only_flag": 153,
+   "series/waves/bath_false": 154,
+   "series/waves/bath_true": 155,
+   "series/waves/count_bool": 156,
+   "series/waves/count_none": 156,
+   "series/waves/host_chars": 157,
+   "series/waves/host_flag": 158,
+   "series/waves/otter_char": 159,
+   "series/waves/plain": 160,
+   "series/waves/wet_water": 161,
+   "synthetic/bath/antler_flag": 162,
+   "synthetic/bath/antler_only_flag": 163,
+   "synthetic/bath/bath_false": 164,
+   "synthetic/bath/bath_true": 165,
+   "synthetic/bath/count_bool": 47,
+   "synthetic/bath/count_none": 47,
+   "synthetic/bath/host_chars": 166,
+   "synthetic/bath/host_flag": 167,
+   "synthetic/bath/otter_char": 165,
+   "synthetic/bath/plain": 168,
+   "synthetic/bath/wet_water": 164,
+   "synthetic/clean/antler_flag": 169,
+   "synthetic/clean/antler_only_flag": 170,
+   "synthetic/clean/bath_false": 171,
+   "synthetic/clean/bath_true": 172,
+   "synthetic/clean/count_bool": 51,
+   "synthetic/clean/count_none": 51,
+   "synthetic/clean/host_chars": 173,
+   "synthetic/clean/host_flag": 174,
+   "synthetic/clean/otter_char": 172,
+   "synthetic/clean/plain": 50,
+   "synthetic/clean/wet_water": 171,
+   "synthetic/hard_stop/antler_flag": 175,
+   "synthetic/hard_stop/antler_only_flag": 176,
+   "synthetic/hard_stop/bath_false": 177,
+   "synthetic/hard_stop/bath_true": 178,
+   "synthetic/hard_stop/count_bool": 179,
+   "synthetic/hard_stop/count_none": 179,
+   "synthetic/hard_stop/host_chars": 180,
+   "synthetic/hard_stop/host_flag": 181,
+   "synthetic/hard_stop/otter_char": 178,
+   "synthetic/hard_stop/plain": 182,
+   "synthetic/hard_stop/wet_water": 177,
+   "synthetic/locks_partial/antler_flag": 183,
+   "synthetic/locks_partial/antler_only_flag": 184,
+   "synthetic/locks_partial/bath_false": 185,
+   "synthetic/locks_partial/bath_true": 186,
+   "synthetic/locks_partial/count_bool": 59,
+   "synthetic/locks_partial/count_none": 59,
+   "synthetic/locks_partial/host_chars": 187,
+   "synthetic/locks_partial/host_flag": 188,
+   "synthetic/locks_partial/otter_char": 186,
+   "synthetic/locks_partial/plain": 58,
+   "synthetic/locks_partial/wet_water": 185,
+   "synthetic/plain/antler_flag": 189,
+   "synthetic/plain/antler_only_flag": 190,
+   "synthetic/plain/bath_false": 191,
+   "synthetic/plain/bath_true": 192,
+   "synthetic/plain/count_bool": 193,
+   "synthetic/plain/count_none": 193,
+   "synthetic/plain/host_chars": 194,
+   "synthetic/plain/host_flag": 195,
+   "synthetic/plain/otter_char": 192,
+   "synthetic/plain/plain": 196,
+   "synthetic/plain/wet_water": 191,
+   "synthetic/realism_edges/antler_flag": 197,
+   "synthetic/realism_edges/antler_only_flag": 198,
+   "synthetic/realism_edges/bath_false": 199,
+   "synthetic/realism_edges/bath_true": 66,
+   "synthetic/realism_edges/count_bool": 67,
+   "synthetic/realism_edges/count_none": 67,
+   "synthetic/realism_edges/host_chars": 200,
+   "synthetic/realism_edges/host_flag": 201,
+   "synthetic/realism_edges/otter_char": 66,
+   "synthetic/realism_edges/plain": 202,
+   "synthetic/realism_edges/wet_water": 199,
+   "synthetic/realism_long/antler_flag": 203,
+   "synthetic/realism_long/antler_only_flag": 204,
+   "synthetic/realism_long/bath_false": 205,
+   "synthetic/realism_long/bath_true": 206,
+   "synthetic/realism_long/count_bool": 71,
+   "synthetic/realism_long/count_none": 71,
+   "synthetic/realism_long/host_chars": 207,
+   "synthetic/realism_long/host_flag": 208,
+   "synthetic/realism_long/otter_char": 206,
+   "synthetic/realism_long/plain": 70,
+   "synthetic/realism_long/wet_water": 205,
+   "synthetic/semicolon_carry/antler_flag": 209,
+   "synthetic/semicolon_carry/antler_only_flag": 210,
+   "synthetic/semicolon_carry/bath_false": 211,
+   "synthetic/semicolon_carry/bath_true": 212,
+   "synthetic/semicolon_carry/count_bool": 213,
+   "synthetic/semicolon_carry/count_none": 213,
+   "synthetic/semicolon_carry/host_chars": 214,
+   "synthetic/semicolon_carry/host_flag": 215,
+   "synthetic/semicolon_carry/otter_char": 212,
+   "synthetic/semicolon_carry/plain": 216,
+   "synthetic/semicolon_carry/wet_water": 211,
+   "synthetic/waves/antler_flag": 217,
+   "synthetic/waves/antler_only_flag": 218,
+   "synthetic/waves/bath_false": 219,
+   "synthetic/waves/bath_true": 220,
+   "synthetic/waves/count_bool": 221,
+   "synthetic/waves/count_none": 221,
+   "synthetic/waves/host_chars": 222,
+   "synthetic/waves/host_flag": 223,
+   "synthetic/waves/otter_char": 220,
+   "synthetic/waves/plain": 224,
+   "synthetic/waves/wet_water": 219
+  },
+  "values": [
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "9a889f1c1bab0e14",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "9a889f1c1bab0e14",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "69d29b70f3e71146",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "ae66dc116fdfec74",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "5ec310b831ff9e76",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "5ec310b831ff9e76",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "b18e193a230fbc7b",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "c8014bc3cda80d42",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "826161e1a8aa8a20",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "826161e1a8aa8a20",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "fe673f099e4f6d07",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "e1b9b1a517a64a4e",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "dd9b15da9ce317d9",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "dd9b15da9ce317d9",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "51ad5c2b0f4a1f8e",
+     [
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "bde58123320538a0",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "bde58123320538a0",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f42a95161d85e293",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "c2cf0fbd338423dd",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "e12ed214f02073cd",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "e12ed214f02073cd",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ],
+    "inject_clip": [
+     "136818bcaab597ac",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "937e00eaded1cc76",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "b1ad0629543573cf",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "b1ad0629543573cf",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ],
+    "inject_clip": [
+     "8457ded5fb754800",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "5a369379325a8ff3",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "526b12cee5ccd9dc",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "526b12cee5ccd9dc",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "792d3c439a40b6c4",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "63a5b9dbb1a1e579",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "38d000cb6971484c",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "38d000cb6971484c",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "feab2004a64be271",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "c065fc958dc6e061",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)"
+    ]
+   },
+   {
+    "clip": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+     "banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "lint kit has no antler_clause but shot_meta.antler is set"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "lint kit has no duck_clause but shot_meta.duck is set"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "bath shot prompt puts an animal on the water: 'On Top Of The Water'"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "9a889f1c1bab0e14",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "bath shot prompt puts an animal on the water: 'On Top Of The Water'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "bcd97a90c84b2446",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "dedce5600c713efb",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "69d29b70f3e71146",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "ae66dc116fdfec74",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bath shot prompt puts an animal on the water: 'On Top Of The Water'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "912e847a328daf0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d7db87500f9dab3",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bath shot prompt puts an animal on the water: 'On Top Of The Water'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "5ec310b831ff9e76",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "912a9b9a8a03deb2",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "fb7ea9e723e33627",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "b18e193a230fbc7b",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "c8014bc3cda80d42",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "92bb9050c5141073",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b634c6104c43760b",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "826161e1a8aa8a20",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "826161e1a8aa8a20",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "586e5ceaad75ed4d",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "fccaf3395812fcb6",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "fe673f099e4f6d07",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "e1b9b1a517a64a4e",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "eac533d648b2099e",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "39c835b98fb0c94e",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "dd9b15da9ce317d9",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "320e6a3c88cf7681",
+     [
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "dd9b15da9ce317d9",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "51ad5c2b0f4a1f8e",
+     [
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a39383a500a0b901",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "cc6fd57980055b59",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 2 animals in frame'",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 2 animals in frame'",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "bde58123320538a0",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "missing real-time / no-slow-motion clause"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "bde58123320538a0",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "9b32009717622f50",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "772c04de19f931ae",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f42a95161d85e293",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "c2cf0fbd338423dd",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 2 animals in frame'",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing real-time / no-slow-motion clause",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "820fc237bc465ab4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "f0d389ff8336c7d6",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing count clause: 'Exactly 2 animals in frame'",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing real-time / no-slow-motion clause",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "e12ed214f02073cd",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ],
+    "inject_clip": [
+     "11d971ff53576a85",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "dfab4852939c687c",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ],
+    "inject_clip": [
+     "136818bcaab597ac",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "937e00eaded1cc76",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "17b3992ec30c8e79",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b2c43d215d38c194",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "b1ad0629543573cf",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ],
+    "inject_clip": [
+     "cc4172c6c480306a",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "361d193bbef0c277",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ],
+    "inject_clip": [
+     "8457ded5fb754800",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "5a369379325a8ff3",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "a32ad071b44fde0d",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "6d9387e6e90e1075",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "526b12cee5ccd9dc",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "526b12cee5ccd9dc",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "edffcc438c78940a",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "285de49f21c560fd",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "792d3c439a40b6c4",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "63a5b9dbb1a1e579",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "f9d7f3423fb6c3a4",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "9f10f5c94d4a0522",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "carry/hold verb used with a moose: 'The MOOSE lifts it'",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing bath clause on bath shot: 'waterline at the shoulders'"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "38d000cb6971484c",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "38d000cb6971484c",
+     [
+      "grade"
+     ]
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)"
+    ],
+    "inject_clip": [
+     "a430e26151a7f99e",
+     [
+      "duck_identity",
+      "duck_clip"
+     ]
+    ],
+    "inject_still": [
+     "dd1ef096653e7055",
+     [
+      "duck_identity",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (clip)",
+     "missing continuity lock 'duck_clip' (clip)",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "feab2004a64be271",
+     [
+      "duck_identity",
+      "duck_clip",
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "c065fc958dc6e061",
+     [
+      "duck_identity",
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "missing continuity lock 'duck_identity' (still)",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (clip)"
+    ],
+    "inject_clip": [
+     "ded7ce444876c179",
+     [
+      "animal_scale"
+     ]
+    ],
+    "inject_still": [
+     "b3ad021491c69e72",
+     [
+      "animal_scale",
+      "grade"
+     ]
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing bath clause on bath shot: 'waterline at the shoulders'",
+     "missing continuity lock 'animal_scale' (still)",
+     "missing continuity lock 'grade' (still)"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1"
+    ],
+    "inject_clip": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "inject_still": [
+     "e0ded0c936f7137f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [2], shot_meta.count is 1"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "51264199925e1391",
+     []
+    ],
+    "inject_still": [
+     "51264199925e1391",
+     []
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [],
+    "inject_clip": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "inject_still": [
+     "2770dc3d7b0c945e",
+     []
+    ],
+    "still": []
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "inject_still": [
+     "84cc0dbb8a4cbbce",
+     []
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 2 animals in frame'",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing real-time / no-slow-motion clause"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 2 animals in frame'",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "missing real-time / no-slow-motion clause"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "missing real-time / no-slow-motion clause"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "missing real-time / no-slow-motion clause"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 0 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause"
+    ],
+    "inject_clip": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "inject_still": [
+     "ff62aed875fd202c",
+     []
+    ],
+    "still": [
+     "missing count clause: 'Exactly 1 animals in frame'",
+     "missing real-time / no-slow-motion clause"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck2 is photoreal'",
+     "realism word 'hyper-real' attached to the duck (only the duck is plush-stylised): 'the Duck is hyper-real'",
+     "realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'Duck_bill photo-realistic'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1"
+    ],
+    "inject_clip": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "inject_still": [
+     "0a6ddb1bf7bd1392",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [0], shot_meta.count is 1"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ]
+   },
+   {
+    "clip": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ],
+    "inject_clip": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "inject_still": [
+     "8e076f0e0441e28f",
+     []
+    ],
+    "still": [
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'",
+     "realism word 'lifelike' attached to the duck (only the duck is plush-stylised): 'The duck stands by a very long row of cedar planks under a pale grey sky with drifting snow and a faint mist, lifelike'"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ],
+    "inject_clip": [
+     "90c55333b135fd19",
+     []
+    ],
+    "inject_still": [
+     "90c55333b135fd19",
+     []
+    ],
+    "still": [
+     "carry/hold verb used with a moose: 'The moose waits; it carries a log'"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause: 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 2",
+     "missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ]
+   },
+   {
+    "clip": [
+     "shot_meta.count must be a non-negative integer",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "shot_meta.count must be a non-negative integer",
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ]
+   },
+   {
+    "clip": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "count clause mismatch: prompt says [1], shot_meta.count is 0",
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause: 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')",
+     "missing duck clause (shot_meta.duck): 'synthetic duck clause: one duck on the water'"
+    ]
+   },
+   {
+    "clip": [
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ],
+    "inject_clip": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "inject_still": [
+     "c5d8a4ed3b9325ed",
+     []
+    ],
+    "still": [
+     "bare 'waves' is forbidden (only 'ONE small wave')"
+    ]
+   }
+  ]
+ },
+ "ref_edits": {
+  "chars/plush": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A plush duck sits on the step. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "chars/real": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "Ref edit prompt lint failed: realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'A realistic duck sits'",
+   "prompt": "A realistic duck sits. A realistic pond. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "chars/split": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "Ref edit prompt lint failed: realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck is photoreal'",
+   "prompt": "The duck is photoreal; the pond is realistic. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "count/plush": {
+   "added": [
+    "animal_scale",
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A plush duck sits on the step. SYNTH SCALE: real size; exactly the stated count. SYNTH GRADE: warm dusk palette."
+  },
+  "count/real": {
+   "added": [
+    "animal_scale",
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A realistic duck sits. A realistic pond. SYNTH SCALE: real size; exactly the stated count. SYNTH GRADE: warm dusk palette."
+  },
+  "count/split": {
+   "added": [
+    "animal_scale",
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "The duck is photoreal; the pond is realistic. SYNTH SCALE: real size; exactly the stated count. SYNTH GRADE: warm dusk palette."
+  },
+  "host/plush": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A plush duck sits on the step. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "host/real": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "Ref edit prompt lint failed: realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'A realistic duck sits'",
+   "prompt": "A realistic duck sits. A realistic pond. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "host/split": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "Ref edit prompt lint failed: realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck is photoreal'",
+   "prompt": "The duck is photoreal; the pond is realistic. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "host_count0/plush": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A plush duck sits on the step. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "host_count0/real": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "Ref edit prompt lint failed: realism word 'realistic' attached to the duck (only the duck is plush-stylised): 'A realistic duck sits'",
+   "prompt": "A realistic duck sits. A realistic pond. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "host_count0/split": {
+   "added": [
+    "duck_identity",
+    "grade"
+   ],
+   "live": "Ref edit prompt lint failed: realism word 'photoreal' attached to the duck (only the duck is plush-stylised): 'The duck is photoreal'",
+   "prompt": "The duck is photoreal; the pond is realistic. SYNTH HOST LOCK: plush toy duck, tiny tail nub at most; vest and beanie never change. SYNTH GRADE: warm dusk palette."
+  },
+  "none/plush": {
+   "added": [],
+   "live": "ok",
+   "prompt": "A plush duck sits on the step."
+  },
+  "none/real": {
+   "added": [],
+   "live": "ok",
+   "prompt": "A realistic duck sits. A realistic pond."
+  },
+  "none/split": {
+   "added": [],
+   "live": "ok",
+   "prompt": "The duck is photoreal; the pond is realistic."
+  },
+  "not_host/plush": {
+   "added": [
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A plush duck sits on the step. SYNTH GRADE: warm dusk palette."
+  },
+  "not_host/real": {
+   "added": [
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "A realistic duck sits. A realistic pond. SYNTH GRADE: warm dusk palette."
+  },
+  "not_host/split": {
+   "added": [
+    "grade"
+   ],
+   "live": "ok",
+   "prompt": "The duck is photoreal; the pond is realistic. SYNTH GRADE: warm dusk palette."
+  }
+ },
+ "reports": {
+  "lint_default": {
+   "A01": [
+    "still: lint kit has no duck_clause but shot_meta.duck is set",
+    "clip: lint kit has no duck_clause but shot_meta.duck is set"
+   ],
+   "A03": [
+    "still: content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+    "still: banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+    "still: lint kit has no antler_clause but shot_meta.antler is set",
+    "clip: content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+    "clip: banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+    "clip: lint kit has no antler_clause but shot_meta.antler is set"
+   ]
+  },
+  "no_lint_key": {
+   "*": [
+    "Prompt lint kit <root>/reports/no_lint_key/ep93/prompt_kit.json has no 'lint' section: the built-in default lint profile applies (content-policy terms and motion rules, no series clauses)"
+   ],
+   "A01": [
+    "still: lint kit has no duck_clause but shot_meta.duck is set",
+    "clip: lint kit has no duck_clause but shot_meta.duck is set"
+   ],
+   "A03": [
+    "still: content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+    "still: banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+    "still: lint kit has no antler_clause but shot_meta.antler is set",
+    "clip: content-policy hard-stop term: 'nude' (docs/CONTENT-POLICY.md)",
+    "clip: banned word 'gore': the live still precheck refuses it (docs/CONTENT-POLICY.md)",
+    "clip: lint kit has no antler_clause but shot_meta.antler is set"
+   ]
+  },
+  "series": {
+   "A01": [
+    "still: missing count clause: 'Exactly 1 animals in frame'",
+    "still: missing real-time / no-slow-motion clause",
+    "still: missing duck clause: 'synthetic duck clause: one duck on the water'",
+    "clip: missing count clause: 'Exactly 1 animals in frame'",
+    "clip: missing real-time / no-slow-motion clause",
+    "clip: missing duck clause: 'synthetic duck clause: one duck on the water'"
+   ],
+   "A02": [
+    "still: missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'",
+    "clip: missing locked-camera clause on exterior/water shot: 'locked-off tripod, no camera movement'"
+   ],
+   "A03": [
+    "still: count clause mismatch: prompt says [1], shot_meta.count is 2",
+    "still: missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'",
+    "clip: count clause mismatch: prompt says [1], shot_meta.count is 2",
+    "clip: missing antler clause (shot_meta.antler): 'synthetic antler clause: two full antlers visible'"
+   ]
+  }
+ }
+}

@@ -1,0 +1,498 @@
+{
+ "edit_plan": {
+  "dissolves": {
+   "A01->A02": 0.5
+  },
+  "episode_id": "ep94",
+  "order": [
+   "A01",
+   "A02",
+   "A03"
+  ],
+  "reuse": {
+   "A01": {
+    "clip": "clips/a01.mp4",
+    "screen_s": 5.0,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "shot_meta": {
+     "characters": [
+      "Duck"
+     ],
+     "count": 2,
+     "duck": true,
+     "qc_fail_if": []
+    },
+    "source": "ep93",
+    "trim_in": 0.0,
+    "trim_out": 5.0
+   },
+   "A02": {
+    "clip": "clips/a02.mp4",
+    "screen_s": 3.5,
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "shot_meta": {
+     "characters": [],
+     "count": 1,
+     "duck": false,
+     "qc_fail_if": [
+      "x"
+     ]
+    },
+    "source": "locked",
+    "trim_in": 0.5,
+    "trim_out": 4.0
+   }
+  },
+  "version": 1
+ },
+ "edit_reuse_meta": {
+  "A01": [
+   [
+    "count",
+    2
+   ],
+   [
+    "duck",
+    true
+   ],
+   [
+    "characters",
+    [
+     "Duck"
+    ]
+   ],
+   [
+    "qc_fail_if",
+    []
+   ]
+  ],
+  "A02": [
+   [
+    "count",
+    1
+   ],
+   [
+    "duck",
+    false
+   ],
+   [
+    "characters",
+    []
+   ],
+   [
+    "qc_fail_if",
+    [
+     "x"
+    ]
+   ]
+  ]
+ },
+ "plans": {
+  "A01": {
+   "params": [
+    [
+     "model",
+     "kling"
+    ],
+    [
+     "duration",
+     5
+    ],
+    [
+     "aspect_ratio",
+     "9:16"
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "plan_keys": [
+    "prompt",
+    "clip_prompt",
+    "end_prompt",
+    "shot_meta",
+    "params",
+    "trim",
+    "tags",
+    "ref_keys",
+    "pre_approved_still",
+    "qc_fail_if"
+   ],
+   "shot_meta": [
+    [
+     "count",
+     1
+    ],
+    [
+     "characters",
+     []
+    ],
+    [
+     "exterior",
+     false
+    ],
+    [
+     "water",
+     false
+    ],
+    [
+     "wet",
+     false
+    ],
+    [
+     "antler",
+     false
+    ],
+    [
+     "duck",
+     false
+    ],
+    [
+     "duck_declared",
+     false
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "tags": []
+  },
+  "A02": {
+   "params": [
+    [
+     "model",
+     "kling"
+    ],
+    [
+     "duration",
+     6
+    ],
+    [
+     "aspect_ratio",
+     "9:16"
+    ],
+    [
+     "end_frame",
+     true
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "plan_keys": [
+    "prompt",
+    "clip_prompt",
+    "end_prompt",
+    "shot_meta",
+    "params",
+    "trim",
+    "tags",
+    "ref_keys",
+    "pre_approved_still",
+    "qc_fail_if"
+   ],
+   "shot_meta": [
+    [
+     "count",
+     2
+    ],
+    [
+     "characters",
+     [
+      "Duck",
+      "Otter1"
+     ]
+    ],
+    [
+     "exterior",
+     true
+    ],
+    [
+     "water",
+     true
+    ],
+    [
+     "wet",
+     true
+    ],
+    [
+     "antler",
+     true
+    ],
+    [
+     "duck",
+     true
+    ],
+    [
+     "duck_declared",
+     true
+    ],
+    [
+     "end_frame",
+     true
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "tags": [
+    "wet"
+   ]
+  },
+  "A03": {
+   "params": [
+    [
+     "model",
+     "seedance"
+    ],
+    [
+     "duration",
+     5
+    ],
+    [
+     "aspect_ratio",
+     "9:16"
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     "720p"
+    ]
+   ],
+   "plan_keys": [
+    "prompt",
+    "clip_prompt",
+    "end_prompt",
+    "shot_meta",
+    "params",
+    "trim",
+    "tags",
+    "ref_keys",
+    "pre_approved_still",
+    "qc_fail_if"
+   ],
+   "shot_meta": [
+    [
+     "count",
+     3
+    ],
+    [
+     "characters",
+     [
+      "G1",
+      "G2",
+      "G3"
+     ]
+    ],
+    [
+     "exterior",
+     false
+    ],
+    [
+     "water",
+     false
+    ],
+    [
+     "wet",
+     false
+    ],
+    [
+     "antler",
+     false
+    ],
+    [
+     "duck",
+     false
+    ],
+    [
+     "duck_declared",
+     true
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     "720p"
+    ]
+   ],
+   "tags": []
+  },
+  "A04": {
+   "params": [
+    [
+     "model",
+     "kling"
+    ],
+    [
+     "duration",
+     4
+    ],
+    [
+     "aspect_ratio",
+     "9:16"
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "plan_keys": [
+    "prompt",
+    "clip_prompt",
+    "end_prompt",
+    "shot_meta",
+    "params",
+    "trim",
+    "tags",
+    "ref_keys",
+    "pre_approved_still",
+    "qc_fail_if",
+    "allow_text"
+   ],
+   "shot_meta": [
+    [
+     "count",
+     0
+    ],
+    [
+     "characters",
+     []
+    ],
+    [
+     "exterior",
+     false
+    ],
+    [
+     "water",
+     false
+    ],
+    [
+     "wet",
+     false
+    ],
+    [
+     "antler",
+     true
+    ],
+    [
+     "duck",
+     true
+    ],
+    [
+     "duck_declared",
+     true
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "tags": []
+  },
+  "A05": {
+   "params": [
+    [
+     "model",
+     "kling"
+    ],
+    [
+     "duration",
+     5
+    ],
+    [
+     "aspect_ratio",
+     "9:16"
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "plan_keys": [
+    "prompt",
+    "clip_prompt",
+    "end_prompt",
+    "shot_meta",
+    "params",
+    "trim",
+    "tags",
+    "ref_keys",
+    "pre_approved_still",
+    "qc_fail_if",
+    "cast"
+   ],
+   "shot_meta": [
+    [
+     "count",
+     2
+    ],
+    [
+     "characters",
+     []
+    ],
+    [
+     "exterior",
+     false
+    ],
+    [
+     "water",
+     false
+    ],
+    [
+     "wet",
+     false
+    ],
+    [
+     "antler",
+     false
+    ],
+    [
+     "duck",
+     true
+    ],
+    [
+     "duck_declared",
+     true
+    ],
+    [
+     "end_frame",
+     false
+    ],
+    [
+     "seedance_resolution",
+     null
+    ]
+   ],
+   "tags": []
+  }
+ }
+}

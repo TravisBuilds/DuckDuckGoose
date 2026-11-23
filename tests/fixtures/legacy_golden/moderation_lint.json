@@ -1,0 +1,5191 @@
+{
+ "records": {
+  "cases": {
+   "env/animal/none/hard_all/dry": 0,
+   "env/animal/none/hard_all/live": 1,
+   "env/animal/none/hard_host/dry": 2,
+   "env/animal/none/hard_host/live": 3,
+   "env/animal/none/none/dry": 4,
+   "env/animal/none/none/live": 5,
+   "env/animal/none/world/dry": 4,
+   "env/animal/none/world/live": 5,
+   "env/animal/three/hard_all/dry": 6,
+   "env/animal/three/hard_all/live": 7,
+   "env/animal/three/hard_host/dry": 8,
+   "env/animal/three/hard_host/live": 9,
+   "env/animal/three/none/dry": 10,
+   "env/animal/three/none/live": 11,
+   "env/animal/three/world/dry": 10,
+   "env/animal/three/world/live": 11,
+   "env/animal/world/hard_all/dry": 0,
+   "env/animal/world/hard_all/live": 1,
+   "env/animal/world/hard_host/dry": 2,
+   "env/animal/world/hard_host/live": 3,
+   "env/animal/world/none/dry": 4,
+   "env/animal/world/none/live": 5,
+   "env/animal/world/world/dry": 4,
+   "env/animal/world/world/live": 5,
+   "env/env/none/hard_all/dry": 12,
+   "env/env/none/hard_all/live": 13,
+   "env/env/none/hard_host/dry": 14,
+   "env/env/none/hard_host/live": 15,
+   "env/env/none/none/dry": 16,
+   "env/env/none/none/live": 17,
+   "env/env/none/world/dry": 18,
+   "env/env/none/world/live": 19,
+   "env/env/three/hard_all/dry": 20,
+   "env/env/three/hard_all/live": 21,
+   "env/env/three/hard_host/dry": 22,
+   "env/env/three/hard_host/live": 23,
+   "env/env/three/none/dry": 24,
+   "env/env/three/none/live": 25,
+   "env/env/three/world/dry": 26,
+   "env/env/three/world/live": 27,
+   "env/env/world/hard_all/dry": 28,
+   "env/env/world/hard_all/live": 29,
+   "env/env/world/hard_host/dry": 14,
+   "env/env/world/hard_host/live": 15,
+   "env/env/world/none/dry": 16,
+   "env/env/world/none/live": 17,
+   "env/env/world/world/dry": 16,
+   "env/env/world/world/live": 17,
+   "env/env_pre/none/hard_all/dry": 28,
+   "env/env_pre/none/hard_all/live": 29,
+   "env/env_pre/none/hard_host/dry": 14,
+   "env/env_pre/none/hard_host/live": 15,
+   "env/env_pre/none/none/dry": 16,
+   "env/env_pre/none/none/live": 17,
+   "env/env_pre/none/world/dry": 16,
+   "env/env_pre/none/world/live": 17,
+   "env/env_pre/three/hard_all/dry": 30,
+   "env/env_pre/three/hard_all/live": 31,
+   "env/env_pre/three/hard_host/dry": 22,
+   "env/env_pre/three/hard_host/live": 23,
+   "env/env_pre/three/none/dry": 24,
+   "env/env_pre/three/none/live": 25,
+   "env/env_pre/three/world/dry": 24,
+   "env/env_pre/three/world/live": 25,
+   "env/env_pre/world/hard_all/dry": 28,
+   "env/env_pre/world/hard_all/live": 29,
+   "env/env_pre/world/hard_host/dry": 14,
+   "env/env_pre/world/hard_host/live": 15,
+   "env/env_pre/world/none/dry": 16,
+   "env/env_pre/world/none/live": 17,
+   "env/env_pre/world/world/dry": 16,
+   "env/env_pre/world/world/live": 17,
+   "env/guest/none/hard_all/dry": 0,
+   "env/guest/none/hard_all/live": 1,
+   "env/guest/none/hard_host/dry": 2,
+   "env/guest/none/hard_host/live": 3,
+   "env/guest/none/none/dry": 4,
+   "env/guest/none/none/live": 5,
+   "env/guest/none/world/dry": 4,
+   "env/guest/none/world/live": 5,
+   "env/guest/three/hard_all/dry": 6,
+   "env/guest/three/hard_all/live": 7,
+   "env/guest/three/hard_host/dry": 8,
+   "env/guest/three/hard_host/live": 9,
+   "env/guest/three/none/dry": 10,
+   "env/guest/three/none/live": 11,
+   "env/guest/three/world/dry": 10,
+   "env/guest/three/world/live": 11,
+   "env/guest/world/hard_all/dry": 0,
+   "env/guest/world/hard_all/live": 1,
+   "env/guest/world/hard_host/dry": 2,
+   "env/guest/world/hard_host/live": 3,
+   "env/guest/world/none/dry": 4,
+   "env/guest/world/none/live": 5,
+   "env/guest/world/world/dry": 4,
+   "env/guest/world/world/live": 5,
+   "env/guest_only/none/hard_all/dry": 28,
+   "env/guest_only/none/hard_all/live": 29,
+   "env/guest_only/none/hard_host/dry": 14,
+   "env/guest_only/none/hard_host/live": 15,
+   "env/guest_only/none/none/dry": 16,
+   "env/guest_only/none/none/live": 17,
+   "env/guest_only/none/world/dry": 16,
+   "env/guest_only/none/world/live": 17,
+   "env/guest_only/three/hard_all/dry": 30,
+   "env/guest_only/three/hard_all/live": 31,
+   "env/guest_only/three/hard_host/dry": 22,
+   "env/guest_only/three/hard_host/live": 23,
+   "env/guest_only/three/none/dry": 24,
+   "env/guest_only/three/none/live": 25,
+   "env/guest_only/three/world/dry": 24,
+   "env/guest_only/three/world/live": 25,
+   "env/guest_only/world/hard_all/dry": 28,
+   "env/guest_only/world/hard_all/live": 29,
+   "env/guest_only/world/hard_host/dry": 14,
+   "env/guest_only/world/hard_host/live": 15,
+   "env/guest_only/world/none/dry": 16,
+   "env/guest_only/world/none/live": 17,
+   "env/guest_only/world/world/dry": 16,
+   "env/guest_only/world/world/live": 17,
+   "env/mud/none/hard_all/dry": 32,
+   "env/mud/none/hard_all/live": 33,
+   "env/mud/none/hard_host/dry": 34,
+   "env/mud/none/hard_host/live": 35,
+   "env/mud/none/none/dry": 36,
+   "env/mud/none/none/live": 37,
+   "env/mud/none/world/dry": 36,
+   "env/mud/none/world/live": 37,
+   "env/mud/three/hard_all/dry": 32,
+   "env/mud/three/hard_all/live": 33,
+   "env/mud/three/hard_host/dry": 34,
+   "env/mud/three/hard_host/live": 35,
+   "env/mud/three/none/dry": 36,
+   "env/mud/three/none/live": 37,
+   "env/mud/three/world/dry": 36,
+   "env/mud/three/world/live": 37,
+   "env/mud/world/hard_all/dry": 32,
+   "env/mud/world/hard_all/live": 33,
+   "env/mud/world/hard_host/dry": 34,
+   "env/mud/world/hard_host/live": 35,
+   "env/mud/world/none/dry": 36,
+   "env/mud/world/none/live": 37,
+   "env/mud/world/world/dry": 36,
+   "env/mud/world/world/live": 37,
+   "env/none/none/hard_all/dry": 28,
+   "env/none/none/hard_all/live": 29,
+   "env/none/none/hard_host/dry": 14,
+   "env/none/none/hard_host/live": 15,
+   "env/none/none/none/dry": 16,
+   "env/none/none/none/live": 17,
+   "env/none/none/world/dry": 16,
+   "env/none/none/world/live": 17,
+   "env/none/three/hard_all/dry": 30,
+   "env/none/three/hard_all/live": 31,
+   "env/none/three/hard_host/dry": 22,
+   "env/none/three/hard_host/live": 23,
+   "env/none/three/none/dry": 24,
+   "env/none/three/none/live": 25,
+   "env/none/three/world/dry": 24,
+   "env/none/three/world/live": 25,
+   "env/none/world/hard_all/dry": 28,
+   "env/none/world/hard_all/live": 29,
+   "env/none/world/hard_host/dry": 14,
+   "env/none/world/hard_host/live": 15,
+   "env/none/world/none/dry": 16,
+   "env/none/world/none/live": 17,
+   "env/none/world/world/dry": 16,
+   "env/none/world/world/live": 17,
+   "env/pack/none/hard_all/dry": 38,
+   "env/pack/none/hard_all/live": 39,
+   "env/pack/none/hard_host/dry": 40,
+   "env/pack/none/hard_host/live": 41,
+   "env/pack/none/none/dry": 42,
+   "env/pack/none/none/live": 43,
+   "env/pack/none/world/dry": 42,
+   "env/pack/none/world/live": 43,
+   "env/pack/three/hard_all/dry": 44,
+   "env/pack/three/hard_all/live": 45,
+   "env/pack/three/hard_host/dry": 46,
+   "env/pack/three/hard_host/live": 47,
+   "env/pack/three/none/dry": 48,
+   "env/pack/three/none/live": 49,
+   "env/pack/three/world/dry": 48,
+   "env/pack/three/world/live": 49,
+   "env/pack/world/hard_all/dry": 38,
+   "env/pack/world/hard_all/live": 39,
+   "env/pack/world/hard_host/dry": 40,
+   "env/pack/world/hard_host/live": 41,
+   "env/pack/world/none/dry": 42,
+   "env/pack/world/none/live": 43,
+   "env/pack/world/world/dry": 42,
+   "env/pack/world/world/live": 43,
+   "env/wet/none/hard_all/dry": 32,
+   "env/wet/none/hard_all/live": 33,
+   "env/wet/none/hard_host/dry": 34,
+   "env/wet/none/hard_host/live": 35,
+   "env/wet/none/none/dry": 36,
+   "env/wet/none/none/live": 37,
+   "env/wet/none/world/dry": 36,
+   "env/wet/none/world/live": 37,
+   "env/wet/three/hard_all/dry": 32,
+   "env/wet/three/hard_all/live": 33,
+   "env/wet/three/hard_host/dry": 34,
+   "env/wet/three/hard_host/live": 35,
+   "env/wet/three/none/dry": 36,
+   "env/wet/three/none/live": 37,
+   "env/wet/three/world/dry": 36,
+   "env/wet/three/world/live": 37,
+   "env/wet/world/hard_all/dry": 32,
+   "env/wet/world/hard_all/live": 33,
+   "env/wet/world/hard_host/dry": 34,
+   "env/wet/world/hard_host/live": 35,
+   "env/wet/world/none/dry": 36,
+   "env/wet/world/none/live": 37,
+   "env/wet/world/world/dry": 36,
+   "env/wet/world/world/live": 37,
+   "grid/bipedal/guest_only/animal": 50,
+   "grid/bipedal/guest_only/env": 51,
+   "grid/bipedal/guest_only/env_pre": 51,
+   "grid/bipedal/guest_only/guest": 50,
+   "grid/bipedal/guest_only/guest_only": 51,
+   "grid/bipedal/guest_only/mud": 52,
+   "grid/bipedal/guest_only/none": 51,
+   "grid/bipedal/guest_only/pack": 53,
+   "grid/bipedal/guest_only/wet": 52,
+   "grid/bipedal/host/animal": 54,
+   "grid/bipedal/host/env": 55,
+   "grid/bipedal/host/env_pre": 55,
+   "grid/bipedal/host/guest": 54,
+   "grid/bipedal/host/guest_only": 51,
+   "grid/bipedal/host/mud": 56,
+   "grid/bipedal/host/none": 55,
+   "grid/bipedal/host/pack": 57,
+   "grid/bipedal/host/wet": 56,
+   "grid/bipedal/nochars/animal": 54,
+   "grid/bipedal/nochars/env": 55,
+   "grid/bipedal/nochars/env_pre": 55,
+   "grid/bipedal/nochars/guest": 54,
+   "grid/bipedal/nochars/guest_only": 51,
+   "grid/bipedal/nochars/mud": 56,
+   "grid/bipedal/nochars/none": 55,
+   "grid/bipedal/nochars/pack": 57,
+   "grid/bipedal/nochars/wet": 56,
+   "grid/bipedal/none/animal": 54,
+   "grid/bipedal/none/env": 55,
+   "grid/bipedal/none/env_pre": 55,
+   "grid/bipedal/none/guest": 54,
+   "grid/bipedal/none/guest_only": 51,
+   "grid/bipedal/none/mud": 56,
+   "grid/bipedal/none/none": 55,
+   "grid/bipedal/none/pack": 57,
+   "grid/bipedal/none/wet": 56,
+   "grid/bipedal/undeclared/animal": 54,
+   "grid/bipedal/undeclared/env": 55,
+   "grid/bipedal/undeclared/env_pre": 55,
+   "grid/bipedal/undeclared/guest": 54,
+   "grid/bipedal/undeclared/guest_only": 51,
+   "grid/bipedal/undeclared/mud": 56,
+   "grid/bipedal/undeclared/none": 55,
+   "grid/bipedal/undeclared/pack": 57,
+   "grid/bipedal/undeclared/wet": 56,
+   "grid/bipedal/wet/animal": 58,
+   "grid/bipedal/wet/env": 56,
+   "grid/bipedal/wet/env_pre": 56,
+   "grid/bipedal/wet/guest": 58,
+   "grid/bipedal/wet/guest_only": 52,
+   "grid/bipedal/wet/mud": 56,
+   "grid/bipedal/wet/none": 56,
+   "grid/bipedal/wet/pack": 59,
+   "grid/bipedal/wet/wet": 56,
+   "grid/bipedal/zero_flag/animal": 54,
+   "grid/bipedal/zero_flag/env": 55,
+   "grid/bipedal/zero_flag/env_pre": 55,
+   "grid/bipedal/zero_flag/guest": 54,
+   "grid/bipedal/zero_flag/guest_only": 51,
+   "grid/bipedal/zero_flag/mud": 56,
+   "grid/bipedal/zero_flag/none": 55,
+   "grid/bipedal/zero_flag/pack": 57,
+   "grid/bipedal/zero_flag/wet": 56,
+   "grid/fours/guest_only/animal": 51,
+   "grid/fours/guest_only/env": 51,
+   "grid/fours/guest_only/env_pre": 51,
+   "grid/fours/guest_only/guest": 51,
+   "grid/fours/guest_only/guest_only": 51,
+   "grid/fours/guest_only/mud": 52,
+   "grid/fours/guest_only/none": 51,
+   "grid/fours/guest_only/pack": 53,
+   "grid/fours/guest_only/wet": 52,
+   "grid/fours/host/animal": 55,
+   "grid/fours/host/env": 55,
+   "grid/fours/host/env_pre": 55,
+   "grid/fours/host/guest": 55,
+   "grid/fours/host/guest_only": 51,
+   "grid/fours/host/mud": 56,
+   "grid/fours/host/none": 55,
+   "grid/fours/host/pack": 57,
+   "grid/fours/host/wet": 56,
+   "grid/fours/nochars/animal": 55,
+   "grid/fours/nochars/env": 55,
+   "grid/fours/nochars/env_pre": 55,
+   "grid/fours/nochars/guest": 55,
+   "grid/fours/nochars/guest_only": 51,
+   "grid/fours/nochars/mud": 56,
+   "grid/fours/nochars/none": 55,
+   "grid/fours/nochars/pack": 57,
+   "grid/fours/nochars/wet": 56,
+   "grid/fours/none/animal": 55,
+   "grid/fours/none/env": 55,
+   "grid/fours/none/env_pre": 55,
+   "grid/fours/none/guest": 55,
+   "grid/fours/none/guest_only": 51,
+   "grid/fours/none/mud": 56,
+   "grid/fours/none/none": 55,
+   "grid/fours/none/pack": 57,
+   "grid/fours/none/wet": 56,
+   "grid/fours/undeclared/animal": 55,
+   "grid/fours/undeclared/env": 55,
+   "grid/fours/undeclared/env_pre": 55,
+   "grid/fours/undeclared/guest": 55,
+   "grid/fours/undeclared/guest_only": 51,
+   "grid/fours/undeclared/mud": 56,
+   "grid/fours/undeclared/none": 55,
+   "grid/fours/undeclared/pack": 57,
+   "grid/fours/undeclared/wet": 56,
+   "grid/fours/wet/animal": 56,
+   "grid/fours/wet/env": 56,
+   "grid/fours/wet/env_pre": 56,
+   "grid/fours/wet/guest": 56,
+   "grid/fours/wet/guest_only": 52,
+   "grid/fours/wet/mud": 56,
+   "grid/fours/wet/none": 56,
+   "grid/fours/wet/pack": 59,
+   "grid/fours/wet/wet": 56,
+   "grid/fours/zero_flag/animal": 55,
+   "grid/fours/zero_flag/env": 55,
+   "grid/fours/zero_flag/env_pre": 55,
+   "grid/fours/zero_flag/guest": 55,
+   "grid/fours/zero_flag/guest_only": 51,
+   "grid/fours/zero_flag/mud": 56,
+   "grid/fours/zero_flag/none": 55,
+   "grid/fours/zero_flag/pack": 57,
+   "grid/fours/zero_flag/wet": 56,
+   "grid/hold/guest_only/animal": 60,
+   "grid/hold/guest_only/env": 61,
+   "grid/hold/guest_only/env_pre": 61,
+   "grid/hold/guest_only/guest": 60,
+   "grid/hold/guest_only/guest_only": 61,
+   "grid/hold/guest_only/mud": 62,
+   "grid/hold/guest_only/none": 61,
+   "grid/hold/guest_only/pack": 63,
+   "grid/hold/guest_only/wet": 62,
+   "grid/hold/host/animal": 64,
+   "grid/hold/host/env": 65,
+   "grid/hold/host/env_pre": 65,
+   "grid/hold/host/guest": 64,
+   "grid/hold/host/guest_only": 61,
+   "grid/hold/host/mud": 66,
+   "grid/hold/host/none": 65,
+   "grid/hold/host/pack": 67,
+   "grid/hold/host/wet": 66,
+   "grid/hold/nochars/animal": 64,
+   "grid/hold/nochars/env": 65,
+   "grid/hold/nochars/env_pre": 65,
+   "grid/hold/nochars/guest": 64,
+   "grid/hold/nochars/guest_only": 61,
+   "grid/hold/nochars/mud": 66,
+   "grid/hold/nochars/none": 65,
+   "grid/hold/nochars/pack": 67,
+   "grid/hold/nochars/wet": 66,
+   "grid/hold/none/animal": 64,
+   "grid/hold/none/env": 65,
+   "grid/hold/none/env_pre": 65,
+   "grid/hold/none/guest": 64,
+   "grid/hold/none/guest_only": 61,
+   "grid/hold/none/mud": 66,
+   "grid/hold/none/none": 65,
+   "grid/hold/none/pack": 67,
+   "grid/hold/none/wet": 66,
+   "grid/hold/undeclared/animal": 64,
+   "grid/hold/undeclared/env": 65,
+   "grid/hold/undeclared/env_pre": 65,
+   "grid/hold/undeclared/guest": 64,
+   "grid/hold/undeclared/guest_only": 61,
+   "grid/hold/undeclared/mud": 66,
+   "grid/hold/undeclared/none": 65,
+   "grid/hold/undeclared/pack": 67,
+   "grid/hold/undeclared/wet": 66,
+   "grid/hold/wet/animal": 68,
+   "grid/hold/wet/env": 66,
+   "grid/hold/wet/env_pre": 66,
+   "grid/hold/wet/guest": 68,
+   "grid/hold/wet/guest_only": 62,
+   "grid/hold/wet/mud": 66,
+   "grid/hold/wet/none": 66,
+   "grid/hold/wet/pack": 69,
+   "grid/hold/wet/wet": 66,
+   "grid/hold/zero_flag/animal": 64,
+   "grid/hold/zero_flag/env": 65,
+   "grid/hold/zero_flag/env_pre": 65,
+   "grid/hold/zero_flag/guest": 64,
+   "grid/hold/zero_flag/guest_only": 61,
+   "grid/hold/zero_flag/mud": 66,
+   "grid/hold/zero_flag/none": 65,
+   "grid/hold/zero_flag/pack": 67,
+   "grid/hold/zero_flag/wet": 66,
+   "grid/negative/guest_only/animal": 54,
+   "grid/negative/guest_only/env": 55,
+   "grid/negative/guest_only/env_pre": 55,
+   "grid/negative/guest_only/guest": 54,
+   "grid/negative/guest_only/guest_only": 55,
+   "grid/negative/guest_only/mud": 56,
+   "grid/negative/guest_only/none": 55,
+   "grid/negative/guest_only/pack": 57,
+   "grid/negative/guest_only/wet": 56,
+   "grid/negative/host/animal": 54,
+   "grid/negative/host/env": 55,
+   "grid/negative/host/env_pre": 55,
+   "grid/negative/host/guest": 54,
+   "grid/negative/host/guest_only": 55,
+   "grid/negative/host/mud": 56,
+   "grid/negative/host/none": 55,
+   "grid/negative/host/pack": 57,
+   "grid/negative/host/wet": 56,
+   "grid/negative/nochars/animal": 54,
+   "grid/negative/nochars/env": 55,
+   "grid/negative/nochars/env_pre": 55,
+   "grid/negative/nochars/guest": 54,
+   "grid/negative/nochars/guest_only": 55,
+   "grid/negative/nochars/mud": 56,
+   "grid/negative/nochars/none": 55,
+   "grid/negative/nochars/pack": 57,
+   "grid/negative/nochars/wet": 56,
+   "grid/negative/none/animal": 54,
+   "grid/negative/none/env": 55,
+   "grid/negative/none/env_pre": 55,
+   "grid/negative/none/guest": 54,
+   "grid/negative/none/guest_only": 55,
+   "grid/negative/none/mud": 56,
+   "grid/negative/none/none": 55,
+   "grid/negative/none/pack": 57,
+   "grid/negative/none/wet": 56,
+   "grid/negative/undeclared/animal": 54,
+   "grid/negative/undeclared/env": 55,
+   "grid/negative/undeclared/env_pre": 55,
+   "grid/negative/undeclared/guest": 54,
+   "grid/negative/undeclared/guest_only": 55,
+   "grid/negative/undeclared/mud": 56,
+   "grid/negative/undeclared/none": 55,
+   "grid/negative/undeclared/pack": 57,
+   "grid/negative/undeclared/wet": 56,
+   "grid/negative/wet/animal": 58,
+   "grid/negative/wet/env": 56,
+   "grid/negative/wet/env_pre": 56,
+   "grid/negative/wet/guest": 58,
+   "grid/negative/wet/guest_only": 56,
+   "grid/negative/wet/mud": 56,
+   "grid/negative/wet/none": 56,
+   "grid/negative/wet/pack": 59,
+   "grid/negative/wet/wet": 56,
+   "grid/negative/zero_flag/animal": 54,
+   "grid/negative/zero_flag/env": 55,
+   "grid/negative/zero_flag/env_pre": 55,
+   "grid/negative/zero_flag/guest": 54,
+   "grid/negative/zero_flag/guest_only": 55,
+   "grid/negative/zero_flag/mud": 56,
+   "grid/negative/zero_flag/none": 55,
+   "grid/negative/zero_flag/pack": 57,
+   "grid/negative/zero_flag/wet": 56,
+   "grid/plain/guest_only/animal": 50,
+   "grid/plain/guest_only/env": 51,
+   "grid/plain/guest_only/env_pre": 51,
+   "grid/plain/guest_only/guest": 50,
+   "grid/plain/guest_only/guest_only": 51,
+   "grid/plain/guest_only/mud": 52,
+   "grid/plain/guest_only/none": 51,
+   "grid/plain/guest_only/pack": 53,
+   "grid/plain/guest_only/wet": 52,
+   "grid/plain/host/animal": 54,
+   "grid/plain/host/env": 55,
+   "grid/plain/host/env_pre": 55,
+   "grid/plain/host/guest": 54,
+   "grid/plain/host/guest_only": 51,
+   "grid/plain/host/mud": 56,
+   "grid/plain/host/none": 55,
+   "grid/plain/host/pack": 57,
+   "grid/plain/host/wet": 56,
+   "grid/plain/nochars/animal": 54,
+   "grid/plain/nochars/env": 55,
+   "grid/plain/nochars/env_pre": 55,
+   "grid/plain/nochars/guest": 54,
+   "grid/plain/nochars/guest_only": 51,
+   "grid/plain/nochars/mud": 56,
+   "grid/plain/nochars/none": 55,
+   "grid/plain/nochars/pack": 57,
+   "grid/plain/nochars/wet": 56,
+   "grid/plain/none/animal": 54,
+   "grid/plain/none/env": 55,
+   "grid/plain/none/env_pre": 55,
+   "grid/plain/none/guest": 54,
+   "grid/plain/none/guest_only": 51,
+   "grid/plain/none/mud": 56,
+   "grid/plain/none/none": 55,
+   "grid/plain/none/pack": 57,
+   "grid/plain/none/wet": 56,
+   "grid/plain/undeclared/animal": 54,
+   "grid/plain/undeclared/env": 55,
+   "grid/plain/undeclared/env_pre": 55,
+   "grid/plain/undeclared/guest": 54,
+   "grid/plain/undeclared/guest_only": 51,
+   "grid/plain/undeclared/mud": 56,
+   "grid/plain/undeclared/none": 55,
+   "grid/plain/undeclared/pack": 57,
+   "grid/plain/undeclared/wet": 56,
+   "grid/plain/wet/animal": 58,
+   "grid/plain/wet/env": 56,
+   "grid/plain/wet/env_pre": 56,
+   "grid/plain/wet/guest": 58,
+   "grid/plain/wet/guest_only": 52,
+   "grid/plain/wet/mud": 56,
+   "grid/plain/wet/none": 56,
+   "grid/plain/wet/pack": 59,
+   "grid/plain/wet/wet": 56,
+   "grid/plain/zero_flag/animal": 54,
+   "grid/plain/zero_flag/env": 55,
+   "grid/plain/zero_flag/env_pre": 55,
+   "grid/plain/zero_flag/guest": 54,
+   "grid/plain/zero_flag/guest_only": 51,
+   "grid/plain/zero_flag/mud": 56,
+   "grid/plain/zero_flag/none": 55,
+   "grid/plain/zero_flag/pack": 57,
+   "grid/plain/zero_flag/wet": 56,
+   "grid/upright/guest_only/animal": 70,
+   "grid/upright/guest_only/env": 71,
+   "grid/upright/guest_only/env_pre": 71,
+   "grid/upright/guest_only/guest": 70,
+   "grid/upright/guest_only/guest_only": 71,
+   "grid/upright/guest_only/mud": 72,
+   "grid/upright/guest_only/none": 71,
+   "grid/upright/guest_only/pack": 73,
+   "grid/upright/guest_only/wet": 72,
+   "grid/upright/host/animal": 74,
+   "grid/upright/host/env": 75,
+   "grid/upright/host/env_pre": 75,
+   "grid/upright/host/guest": 74,
+   "grid/upright/host/guest_only": 71,
+   "grid/upright/host/mud": 76,
+   "grid/upright/host/none": 75,
+   "grid/upright/host/pack": 77,
+   "grid/upright/host/wet": 76,
+   "grid/upright/nochars/animal": 74,
+   "grid/upright/nochars/env": 75,
+   "grid/upright/nochars/env_pre": 75,
+   "grid/upright/nochars/guest": 74,
+   "grid/upright/nochars/guest_only": 71,
+   "grid/upright/nochars/mud": 76,
+   "grid/upright/nochars/none": 75,
+   "grid/upright/nochars/pack": 77,
+   "grid/upright/nochars/wet": 76,
+   "grid/upright/none/animal": 74,
+   "grid/upright/none/env": 75,
+   "grid/upright/none/env_pre": 75,
+   "grid/upright/none/guest": 74,
+   "grid/upright/none/guest_only": 71,
+   "grid/upright/none/mud": 76,
+   "grid/upright/none/none": 75,
+   "grid/upright/none/pack": 77,
+   "grid/upright/none/wet": 76,
+   "grid/upright/undeclared/animal": 74,
+   "grid/upright/undeclared/env": 75,
+   "grid/upright/undeclared/env_pre": 75,
+   "grid/upright/undeclared/guest": 74,
+   "grid/upright/undeclared/guest_only": 71,
+   "grid/upright/undeclared/mud": 76,
+   "grid/upright/undeclared/none": 75,
+   "grid/upright/undeclared/pack": 77,
+   "grid/upright/undeclared/wet": 76,
+   "grid/upright/wet/animal": 78,
+   "grid/upright/wet/env": 76,
+   "grid/upright/wet/env_pre": 76,
+   "grid/upright/wet/guest": 78,
+   "grid/upright/wet/guest_only": 72,
+   "grid/upright/wet/mud": 76,
+   "grid/upright/wet/none": 76,
+   "grid/upright/wet/pack": 79,
+   "grid/upright/wet/wet": 76,
+   "grid/upright/zero_flag/animal": 74,
+   "grid/upright/zero_flag/env": 75,
+   "grid/upright/zero_flag/env_pre": 75,
+   "grid/upright/zero_flag/guest": 74,
+   "grid/upright/zero_flag/guest_only": 71,
+   "grid/upright/zero_flag/mud": 76,
+   "grid/upright/zero_flag/none": 75,
+   "grid/upright/zero_flag/pack": 77,
+   "grid/upright/zero_flag/wet": 76,
+   "route/clip_kling/animal/none": 80,
+   "route/clip_kling/animal/three": 81,
+   "route/clip_kling/animal/world": 80,
+   "route/clip_kling/env/none": 80,
+   "route/clip_kling/env/three": 81,
+   "route/clip_kling/env/world": 80,
+   "route/clip_kling/env_pre/none": 80,
+   "route/clip_kling/env_pre/three": 81,
+   "route/clip_kling/env_pre/world": 80,
+   "route/clip_kling/guest/none": 80,
+   "route/clip_kling/guest/three": 81,
+   "route/clip_kling/guest/world": 80,
+   "route/clip_kling/guest_only/none": 82,
+   "route/clip_kling/guest_only/three": 83,
+   "route/clip_kling/guest_only/world": 82,
+   "route/clip_kling/mud/none": 84,
+   "route/clip_kling/mud/three": 84,
+   "route/clip_kling/mud/world": 84,
+   "route/clip_kling/none/none": 80,
+   "route/clip_kling/none/three": 81,
+   "route/clip_kling/none/world": 80,
+   "route/clip_kling/pack/none": 85,
+   "route/clip_kling/pack/three": 86,
+   "route/clip_kling/pack/world": 85,
+   "route/clip_kling/wet/none": 84,
+   "route/clip_kling/wet/three": 84,
+   "route/clip_kling/wet/world": 84,
+   "route/clip_none/animal/none": 87,
+   "route/clip_none/animal/three": 88,
+   "route/clip_none/animal/world": 87,
+   "route/clip_none/env/none": 87,
+   "route/clip_none/env/three": 88,
+   "route/clip_none/env/world": 87,
+   "route/clip_none/env_pre/none": 87,
+   "route/clip_none/env_pre/three": 88,
+   "route/clip_none/env_pre/world": 87,
+   "route/clip_none/guest/none": 87,
+   "route/clip_none/guest/three": 88,
+   "route/clip_none/guest/world": 87,
+   "route/clip_none/guest_only/none": 89,
+   "route/clip_none/guest_only/three": 90,
+   "route/clip_none/guest_only/world": 89,
+   "route/clip_none/mud/none": 91,
+   "route/clip_none/mud/three": 91,
+   "route/clip_none/mud/world": 91,
+   "route/clip_none/none/none": 87,
+   "route/clip_none/none/three": 88,
+   "route/clip_none/none/world": 87,
+   "route/clip_none/pack/none": 92,
+   "route/clip_none/pack/three": 93,
+   "route/clip_none/pack/world": 92,
+   "route/clip_none/wet/none": 91,
+   "route/clip_none/wet/three": 91,
+   "route/clip_none/wet/world": 91,
+   "route/clip_seedance/animal/none": 94,
+   "route/clip_seedance/animal/three": 95,
+   "route/clip_seedance/animal/world": 94,
+   "route/clip_seedance/env/none": 94,
+   "route/clip_seedance/env/three": 95,
+   "route/clip_seedance/env/world": 94,
+   "route/clip_seedance/env_pre/none": 94,
+   "route/clip_seedance/env_pre/three": 95,
+   "route/clip_seedance/env_pre/world": 94,
+   "route/clip_seedance/guest/none": 94,
+   "route/clip_seedance/guest/three": 95,
+   "route/clip_seedance/guest/world": 94,
+   "route/clip_seedance/guest_only/none": 96,
+   "route/clip_seedance/guest_only/three": 97,
+   "route/clip_seedance/guest_only/world": 96,
+   "route/clip_seedance/mud/none": 98,
+   "route/clip_seedance/mud/three": 98,
+   "route/clip_seedance/mud/world": 98,
+   "route/clip_seedance/none/none": 94,
+   "route/clip_seedance/none/three": 95,
+   "route/clip_seedance/none/world": 94,
+   "route/clip_seedance/pack/none": 99,
+   "route/clip_seedance/pack/three": 100,
+   "route/clip_seedance/pack/world": 99,
+   "route/clip_seedance/wet/none": 98,
+   "route/clip_seedance/wet/three": 98,
+   "route/clip_seedance/wet/world": 98,
+   "route/still/animal/none": 55,
+   "route/still/animal/three": 101,
+   "route/still/animal/world": 55,
+   "route/still/env/none": 55,
+   "route/still/env/three": 101,
+   "route/still/env/world": 55,
+   "route/still/env_pre/none": 55,
+   "route/still/env_pre/three": 101,
+   "route/still/env_pre/world": 55,
+   "route/still/guest/none": 55,
+   "route/still/guest/three": 101,
+   "route/still/guest/world": 55,
+   "route/still/guest_only/none": 102,
+   "route/still/guest_only/three": 103,
+   "route/still/guest_only/world": 102,
+   "route/still/mud/none": 56,
+   "route/still/mud/three": 56,
+   "route/still/mud/world": 56,
+   "route/still/none/none": 55,
+   "route/still/none/three": 101,
+   "route/still/none/world": 55,
+   "route/still/pack/none": 104,
+   "route/still/pack/three": 105,
+   "route/still/pack/world": 104,
+   "route/still/wet/none": 56,
+   "route/still/wet/three": 56,
+   "route/still/wet/world": 56
+  },
+  "values": [
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+       ]
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [
+      "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+     ],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": [
+        "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+       ]
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+       ]
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [
+      "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+     ],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": [
+        "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+       ]
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      ]
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+       ]
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      ]
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      ]
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      ]
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+       ]
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      ]
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+      ]
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": true,
+      "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": true,
+      "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+        "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Default: Kling for general content",
+      "recommended": "kling"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+        "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "animal_poses",
+     "duck_role",
+     "moderation_routing",
+     "same_resort"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": true,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": true,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": true,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "animal_poses",
+      "duck_role",
+      "moderation_routing",
+      "same_resort"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": true,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+        "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": true,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": true,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "would_refuse",
+    "hard_rules": [
+     "duck_role"
+    ],
+    "hard_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": true,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "error": "Playbook moderation lint refused: Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).; Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+    "record": {
+     "advisory_violations": [],
+     "decision": "refuse",
+     "hard_rules": [
+      "duck_role"
+     ],
+     "hard_violations": [
+      "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+      "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+     ],
+     "kind": "still",
+     "live": true,
+     "routing": {
+      "actual": null,
+      "applies": false,
+      "moderation_risk": false,
+      "reason": "Multi-reference shot: Seedance handles complex refs better",
+      "recommended": "seedance"
+     },
+     "rules": {
+      "animal_poses": {
+       "hard": false,
+       "violations": []
+      },
+      "duck_role": {
+       "hard": true,
+       "violations": [
+        "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+        "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+       ]
+      },
+      "moderation_routing": {
+       "hard": false,
+       "violations": []
+      },
+      "same_resort": {
+       "hard": false,
+       "violations": []
+      }
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": false,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot B02: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot B02: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+     "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'hand over' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'handing' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5).",
+     "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+     "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+       "Shot A01: Prompt contains 'carrying' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+      ]
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot A01: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "kling",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: moderation-risk content routed to seedance; playbook recommends kling (Wet/mud content: route to Kling (never blocked in Ep02))"
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": true,
+     "reason": "Wet/mud content: route to Kling (never blocked in Ep02)",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": [
+       "Shot C03: moderation-risk content routed to seedance; playbook recommends kling (Wet/mud content: route to Kling (never blocked in Ep02))"
+      ]
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "clip",
+    "live": true,
+    "routing": {
+     "actual": "seedance",
+     "applies": true,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [],
+    "decision": "pass",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": []
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Default: Kling for general content",
+     "recommended": "kling"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   },
+   {
+    "advisory_violations": [
+     "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+    ],
+    "decision": "advisory",
+    "hard_rules": [],
+    "hard_violations": [],
+    "kind": "still",
+    "live": true,
+    "routing": {
+     "actual": null,
+     "applies": false,
+     "moderation_risk": false,
+     "reason": "Multi-reference shot: Seedance handles complex refs better",
+     "recommended": "seedance"
+    },
+    "rules": {
+     "animal_poses": {
+      "hard": false,
+      "violations": []
+     },
+     "duck_role": {
+      "hard": false,
+      "violations": [
+       "Shot C03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+      ]
+     },
+     "moderation_routing": {
+      "hard": false,
+      "violations": []
+     },
+     "same_resort": {
+      "hard": false,
+      "violations": []
+     }
+    }
+   }
+  ]
+ },
+ "unknown_hard_rule": "HFVG_PLAYBOOK_HARD_RULES names unknown playbook rules ['not_a_rule']; known rules: ['duck_role', 'animal_poses', 'same_resort', 'moderation_routing']",
+ "validators": {
+  "absent_ok": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [],
+   "shot_no_world": []
+  },
+  "absent_role": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [
+    "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+   ],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [
+    "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+   ],
+   "shot_no_world": [
+    "Shot A01: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+   ]
+  },
+  "all": {
+   "animal_poses": [
+    "Shot A07: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+   ],
+   "draft_first": [
+    "Shot A07: Cannot render final without Project owner approval of draft. Draft-first rule (§5.6.2)."
+   ],
+   "duck_role": [
+    "Shot A07: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1)."
+   ],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [
+    "Shot A07: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+   ],
+   "shot": [
+    "Shot A07: Cannot render final without Project owner approval of draft. Draft-first rule (§5.6.2).",
+    "Shot A07: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1).",
+    "Shot A07: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "Shot A07: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+   ],
+   "shot_no_world": [
+    "Shot A07: Cannot render final without Project owner approval of draft. Draft-first rule (§5.6.2).",
+    "Shot A07: Guest-only shot must include 'no duck' hard negative. Duck-as-host rule (§3.1).",
+    "Shot A07: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7)."
+   ]
+  },
+  "animal_tag": {
+   "animal_poses": [
+    "Shot A06: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+   ],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [
+    "Shot A06: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+   ],
+   "shot_no_world": [
+    "Shot A06: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+   ]
+  },
+  "draft": {
+   "animal_poses": [],
+   "draft_first": [
+    "Shot A08: Draft must pass QC before showing to project owner. Draft-first rule (§5.6.1)."
+   ],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [
+    "Shot A08: Draft must pass QC before showing to project owner. Draft-first rule (§5.6.1)."
+   ],
+   "shot_no_world": [
+    "Shot A08: Draft must pass QC before showing to project owner. Draft-first rule (§5.6.1)."
+   ]
+  },
+  "env_tag": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [
+    "Shot E01: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+   ],
+   "shot": [
+    "Shot E01: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+   ],
+   "shot_no_world": []
+  },
+  "fours": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [],
+   "shot_no_world": []
+  },
+  "multi_ref": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "seedance_2.5",
+    "reason": "Multi-reference shot: Seedance handles complex refs better"
+   },
+   "same_resort": [],
+   "shot": [],
+   "shot_no_world": []
+  },
+  "pack": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [
+    "Shot A03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+   ],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [
+    "Shot A03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+   ],
+   "shot_no_world": [
+    "Shot A03: Duck cannot be in guest pack. Duck is host, not fifth guest (§5)."
+   ]
+  },
+  "room_exempt": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [],
+   "shot_no_world": []
+  },
+  "room_no_ref": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [
+    "Shot R01: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+   ],
+   "shot": [
+    "Shot R01: Room generation must include world refs from locked resort frames. ONE-RESORT RULE (§6.1)."
+   ],
+   "shot_no_world": []
+  },
+  "room_ref": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [],
+   "shot_no_world": []
+  },
+  "upright": {
+   "animal_poses": [
+    "Shot A04: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+    "Shot A04: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+    "Shot A04: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+   ],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Default: Kling for general content"
+   },
+   "same_resort": [],
+   "shot": [
+    "Shot A04: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+    "Shot A04: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+    "Shot A04: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+   ],
+   "shot_no_world": [
+    "Shot A04: Prompt contains 'standing upright' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+    "Shot A04: Prompt contains 'holding' for guest animal. NO UPRIGHT/CARRYING rule (§7).",
+    "Shot A04: Animal shot must specify 'on all fours' or 'quadrupedal' gait (§7 process)."
+   ]
+  },
+  "wet": {
+   "animal_poses": [],
+   "draft_first": [],
+   "duck_role": [],
+   "routing": {
+    "model": "kling_3.0",
+    "reason": "Wet/mud content: route to Kling (never blocked in Ep02)"
+   },
+   "same_resort": [],
+   "shot": [],
+   "shot_no_world": []
+  }
+ }
+}
