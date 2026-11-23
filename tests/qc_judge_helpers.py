@@ -19,12 +19,12 @@ JUDGE_ENV = (
 
 def reset_registries() -> None:
     """No still reviewer, counter, clip checker or identity judge registered (the flag-off state)."""
-    from hfvg.qc.animal_count import set_animal_counter
     from hfvg.qc.clip_constraints import set_constraint_checker
+    from hfvg.qc.headcount import set_cast_counter
     from hfvg.qc.identity import set_identity_judge
     from hfvg.qc.still_review import set_still_reviewer
 
-    set_animal_counter(None)
+    set_cast_counter(None)
     set_constraint_checker(None)
     set_identity_judge(None)
     set_still_reviewer(None)

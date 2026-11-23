@@ -619,14 +619,15 @@ async def check_assembly_qc(
     run on every shot through the ContinuityChecker interface (unverified -> NEEDS_REVIEW when hard).
 
     - Motion (stillgate G4.10) per shot window of the assembled edit (FAIL / WATCH / PASS).
-    - Animal count (shot_meta.count) and duck presence (shot_meta.duck) per shot, through the
-      AnimalCounter interface (hfvg.qc.animal_count). No counter configured -> NEEDS_REVIEW.
+    - Headcount per shot: every figure the shot declares counted as declared, no unexpected figure
+      (hfvg.qc.headcount, the registered CastCounter). No counter configured -> NEEDS_REVIEW.
 
-    Verdict (worst wins): FAIL (still-only shot or count/duck mismatch) > NEEDS_REVIEW (could not
+    Verdict (worst wins): FAIL (still-only shot or a headcount mismatch) > NEEDS_REVIEW (could not
     verify: no checker, low confidence, QC error, missing edit) > WATCH (low motion, human look)
     > PASS. FAIL and NEEDS_REVIEW are ``blocking``: the episode holds G_FINAL_CUT until a clip retry
     produces a passing edit or a human accepts the QC result. DRY_RUN placeholder edits (nothing
-    rendered) return verdict DRY_RUN and are not blocking.
+    rendered) return verdict DRY_RUN and are not blocking. ``headcount_results`` is also returned as
+    ``animal_results``, its name before the general headcount.
     """
     from hfvg.qc import continuity as cont
 
@@ -637,38 +638,41 @@ async def check_assembly_qc(
         await asyncio.sleep(config.DRY_RUN_QC_DELAY)
         return {"verdict": "DRY_RUN", "blocking": False, "escalate": False,
                 "reason": "dry run: placeholder clips, no edit rendered, nothing to check",
-                "motion_results": [], "animal_results": [], "continuity_policy": policy,
+                "motion_results": [], "headcount_results": [], "animal_results": [], "continuity_policy": policy,
                 "continuity_results": []}
 
-    def result(verdict: str, reason: str, motion=None, animals=None, continuity_rows=None) -> dict:
+    def result(verdict: str, reason: str, motion=None, headcounts=None, continuity_rows=None) -> dict:
         motion = motion or []
-        animals = animals or []
+        headcounts = headcounts or []
         continuity_rows = continuity_rows or []
-        hard_animals = cont.HEADCOUNT in policy["hard"]
+        hard_headcount = cont.HEADCOUNT in policy["hard"]
         return {
             "verdict": verdict,
             "blocking": verdict in ASSEMBLY_BLOCKING_VERDICTS,
             "escalate": verdict == "NEEDS_REVIEW",
             "reason": reason,
             "motion_results": motion,
-            "animal_results": animals,
+            "headcount_results": headcounts,
+            "animal_results": headcounts,
             "continuity_policy": policy,
             "continuity_results": continuity_rows,
             "failed_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "FAIL"}
-                                   | {a["shot_id"] for a in animals if hard_animals and a["status"] == "FAIL"}
+                                   | {a["shot_id"] for a in headcounts if hard_headcount and a["status"] == "FAIL"}
                                    | {c["shot_id"] for c in continuity_rows if c["hard"] and c["status"] == "FAIL"}),
-            "review_shots": sorted({a["shot_id"] for a in animals if hard_animals and a["status"] == "NEEDS_REVIEW"}
+            "review_shots": sorted({a["shot_id"] for a in headcounts
+                                    if hard_headcount and a["status"] == "NEEDS_REVIEW"}
                                    | {c["shot_id"] for c in continuity_rows
                                       if c["hard"] and c["status"] == "NEEDS_REVIEW"}),
             "watch_shots": sorted({m["shot_id"] for m in motion if m["verdict"] == "WATCH"}
-                                  | {a["shot_id"] for a in animals if not hard_animals and a["status"] != "PASS"}
+                                  | {a["shot_id"] for a in headcounts if not hard_headcount and a["status"] != "PASS"}
                                   | {c["shot_id"] for c in continuity_rows if not c["hard"] and c["status"] != "PASS"}),
+            "judge_budget_used_up": sorted(a["shot_id"] for a in headcounts if a.get("judge_budget_used_up")),
         }
 
     if not assembly_path or not Path(assembly_path).is_file() or not clips:
         return result("NEEDS_REVIEW", f"mute edit missing or empty: {assembly_path}")
 
-    from hfvg.qc.animal_count import check_shot_animals, get_animal_counter
+    from hfvg.qc.headcount import check_headcount, get_cast_counter
     from hfvg.qc.motion import check_motion_async
 
     try:
@@ -679,20 +683,20 @@ async def check_assembly_qc(
     motion = [{"shot_id": r.shot_id, "t0": r.t0, "t1": r.t1, "mean_fd": r.mean_fd,
                "peak_fd": r.peak_fd, "verdict": r.verdict} for r in rows]
 
-    activity.heartbeat({"stage": "assembly_qc_animals", "episode": episode_id})
-    counter = get_animal_counter()
+    activity.heartbeat({"stage": "assembly_qc_headcount", "episode": episode_id})
+    counter = get_cast_counter()
     metas = shot_meta_by_id or {}
     edit_windows = {m["shot_id"]: (m["t0"], m["t1"]) for m in motion}
-    animals = []
+    headcounts = []
     for clip in clips:
         sid = clip["id"]
         # Reused locked clips (edit plan) carry their own shot_meta in the manifest
         meta = metas.get(sid) or clip.get("shot_meta")
         window = (clip.get("trim_in"), clip.get("trim_out")) if clip.get("source") else edit_windows.get(sid)
-        res = await check_shot_animals(counter, clip.get("source") or assembly_path, meta,
-                                       shot_context={"episode_id": episode_id, "shot_id": sid,
-                                                     "shot_meta": meta, "window": window})
-        animals.append({"shot_id": sid, **res})
+        res = await check_headcount(counter, clip.get("source") or assembly_path, meta,
+                                    shot_context={"episode_id": episode_id, "shot_id": sid, "window": window},
+                                    media="clip")
+        headcounts.append({"shot_id": sid, **res})
 
     # Size / order continuity checks: only when the episode declares continuity_hard_checks.
     checker_rows: list[dict] = []
@@ -710,18 +714,18 @@ async def check_assembly_qc(
                 checker_rows.append({"shot_id": sid, **r})
     continuity = cont.classify(checker_rows, policy)
     continuity_rows = continuity["results"]
-    hard_animals = cont.HEADCOUNT in policy["hard"]
+    hard_headcount = cont.HEADCOUNT in policy["hard"]
 
     fails = [f"{m['shot_id']} still-only (peak_fd={m['peak_fd']}, mean_fd={m['mean_fd']})"
              for m in motion if m["verdict"] == "FAIL"]
     reviews: list[str] = []
     watches = [f"{m['shot_id']} low motion (peak_fd={m['peak_fd']}, mean_fd={m['mean_fd']})"
                for m in motion if m["verdict"] == "WATCH"]
-    for a in animals:  # headcount: hard by default; advisory when the episode says so
+    for a in headcounts:  # headcount: hard by default; advisory when the episode says so
         if a["status"] == "PASS":
             continue
         line = f"{a['shot_id']}: {a['reason']}"
-        if not hard_animals:
+        if not hard_headcount:
             watches.append(f"{line} (advisory headcount)")
         elif a["status"] == "FAIL":
             fails.append(line)
@@ -737,6 +741,6 @@ async def check_assembly_qc(
     elif watches:
         verdict, reason = "WATCH", "; ".join(watches)
     else:
-        verdict, reason = "PASS", "all shots passed motion and animal checks"
+        verdict, reason = "PASS", "all shots passed motion and headcount checks"
     activity.logger.info(f"Assembly QC {episode_id}: {verdict}: {reason}")
-    return result(verdict, reason, motion, animals, continuity_rows)
+    return result(verdict, reason, motion, headcounts, continuity_rows)

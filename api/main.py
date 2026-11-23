@@ -4124,8 +4124,8 @@ async def get_g2_headcount(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """GAP-27: per shot, animals counted in the kept still vs the declared cast (read-only; no spend
-    unless the QC judges are on, then one cached judge call per still, never repaid on reload)."""
+    """GAP-27: per shot, the declared figures counted in the kept still (read-only; no spend unless the
+    QC judges are on, then one cached judge call per still, never repaid on reload)."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -4134,11 +4134,31 @@ async def get_g2_headcount(
 
 
 class HeadcountRequest(BaseModel):
+    """A reviewer's count of one still: per declared figure (the ids of ``expected.figures`` in
+    GET /g2-headcount) with the undeclared figures, the shape of the counter's answer. The cast /
+    duck / other counts of the first series' form are still accepted."""
     version: int = Field(..., ge=1)
-    cast: int = Field(..., ge=0)
-    duck: int = Field(..., ge=0)
-    other: int = Field(0, ge=0, description="any other animal in frame")
+    figures: dict[str, int] | None = Field(None, description="declared figure id -> how many are in frame")
+    unexpected: int = Field(0, ge=0, description="figures nobody declared that stand out as subjects of the shot")
+    background: int = Field(0, ge=0, description="figures nobody declared, only in the background")
+    cast: int | None = Field(None, ge=0, description="first series' form: main characters, its host excepted")
+    duck: int | None = Field(None, ge=0, description="first series' form: its host")
+    other: int | None = Field(None, ge=0, description="first series' form: any other figure in frame")
     note: str = Field("", max_length=1000)
+
+    def counts(self) -> dict:
+        """The counts to record (ValueError when the two forms are mixed or neither is complete)."""
+        legacy = [k for k in ("cast", "duck", "other") if getattr(self, k) is not None]
+        if self.figures is not None:
+            if legacy:
+                raise ValueError("send figures (with unexpected and background) or the cast / duck / other "
+                                 "counts, not both")
+            return {"figures": self.figures, "unexpected": self.unexpected, "background": self.background}
+        if {"unexpected", "background"} & self.model_fields_set:
+            raise ValueError("unexpected and background go with figures")
+        if self.cast is None or self.duck is None:
+            raise ValueError("send figures (figure id -> count) or both cast and duck")
+        return {"cast": self.cast, "duck": self.duck, "other": self.other or 0}
 
 
 @app.post("/api/episodes/{episode_id}/shots/{shot_id}/headcount")
@@ -4149,23 +4169,31 @@ async def record_still_headcount(
     authorization: str | None = Header(None),
     studio_admin_token: str | None = Cookie(None),
 ):
-    """GAP-27: record a reviewer's animal count for one still version (used by the G2 headcount check
-    when no automatic counter is configured). The still file must be on disk. Audited."""
+    """GAP-27: record a reviewer's count of the figures in one still version (the G2 and recompose
+    headcount use it before any counter). The still file must be on disk. Audited."""
     from hfvg.qc.g2_headcount import record_headcount
     from hfvg.still_selection import outputs_dir, still_file
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", shot_id):
         raise HTTPException(status_code=422, detail="invalid shot id")
+    try:
+        counts = request.counts()
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if still_file(outputs_dir(episode_id, shot_id, paths.data_dir()), request.version) is None:
         raise HTTPException(status_code=409, detail=f"still v{request.version} of {shot_id} not on disk")
-    row = record_headcount(episode_id, shot_id, request.version,
-                           {"cast": request.cast, "duck": request.duck, "other": request.other},
-                           by="admin", note=request.note.strip(),
-                           episodes_dir=paths.episodes_dir())
-    await _audit(episode_id, "g2_headcount",
-                 f"{shot_id} v{request.version}: cast={request.cast} duck={request.duck} "
-                 f"other={request.other} {request.note.strip()}")
+    try:
+        row = record_headcount(episode_id, shot_id, request.version, counts, by="admin",
+                               note=request.note.strip(), episodes_dir=paths.episodes_dir())
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if "figures" in row:
+        counted = " ".join([f"{fid}={n}" for fid, n in row["figures"].items()]
+                           + [f"unexpected={row['unexpected']}", f"background={row['background']}"])
+    else:
+        counted = f"cast={row['cast']} duck={row['duck']} other={row['other']}"
+    await _audit(episode_id, "g2_headcount", f"{shot_id} v{request.version}: {counted} {request.note.strip()}")
     return {"success": True, "shot_id": shot_id, "version": request.version, "headcount": row}
 
 
@@ -4904,7 +4932,7 @@ async def get_recompose_headcount(
         FAIL as _FAIL, NEEDS_REVIEW as _NR, ReviewerHeadcountCounter, _still_for, check_still_headcount,
         load_headcounts,
     )
-    from hfvg.qc.animal_count import get_animal_counter
+    from hfvg.qc.headcount import get_cast_counter
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     if not temporal_client:
@@ -4915,7 +4943,7 @@ async def get_recompose_headcount(
     except Exception as e:
         raise HTTPException(status_code=409, detail=f"recompose headcount unavailable (fails closed): {e}")
     reviewer = ReviewerHeadcountCounter(
-        load_headcounts(episode_id, paths.episodes_dir()), get_animal_counter())
+        load_headcounts(episode_id, paths.episodes_dir()), get_cast_counter())
     out_root = paths.outputs_dir(episode_id)
     shots = {}
     for sid in sorted(plans):
