@@ -11,6 +11,9 @@ Flow for one character version (an outfit):
 4. The creator approves: the version is locked (hfvg.cast_store.approve_version) and its sheet
    images become the identity refs of every still with the character (hfvg.cast_plan).
 
+Each picture is framed for the character's body type (SHEET_BODIES: humanoid, four-legged or other)
+or the sheet pose the character has of its own.
+
 Before the lock any stage may be rejected and generated again; each try is a new attempt (new job
 ids), so a paid job id is never reused. Only the server's still model (MODEL_PATH_STILL, the model
 the REST provider routes) is used, and only when the model caps registry says it is routed.
@@ -56,6 +59,29 @@ VIEW_TEXT = {
 }
 HEAD_SHEET_TEXT = ("A head sheet: four head-and-shoulders views of the same character side by side, evenly "
                    "spaced: front, three-quarter, profile and back, neutral expression.")
+# How a sheet frames each body type (hfvg.cast_store.BODY_TYPES): its full-body sentence, the aspect
+# ratios of a full-body picture (most wanted first) and its head sheet sentence. Humanoid is the
+# frame sheets always had; a character's own sheet pose replaces the full-body sentence.
+SHEET_BODIES = {
+    "humanoid": {"frame": BODY_FRAME, "aspects": BODY_ASPECTS, "head": HEAD_SHEET_TEXT,
+                 "placeholder": PLACEHOLDER_BODY},
+    "four_legged": {
+        "frame": ("Full body, standing on all four legs in a neutral relaxed stance, the whole body and all "
+                  "four legs in view, the whole figure centered in frame."),
+        "aspects": ("3:2", "4:3", "16:9", "1:1"),
+        "head": ("A head sheet: four views of the same character's head and neck side by side, evenly "
+                 "spaced: front, three-quarter, profile and back, neutral expression."),
+        "placeholder": (1152, 768),
+    },
+    "other": {
+        "frame": ("Full body in a neutral resting pose natural to this character, the whole character in "
+                  "view and centered in frame."),
+        "aspects": ("1:1", "4:3", "3:4", "3:2", "2:3"),
+        "head": ("A head sheet: four close views of the same character's head or face side by side, evenly "
+                 "spaced: front, three-quarter, profile and back, neutral expression."),
+        "placeholder": (960, 960),
+    },
+}
 
 
 class SheetPlanError(cast_store.CastError):
@@ -124,7 +150,21 @@ def _join(*parts: str) -> str:
     return " ".join(p.strip() for p in parts if p and p.strip())
 
 
-def master_prompt(clause: str, mode: str, style: str, outfit: str = "") -> str:
+def sheet_body(character: dict) -> dict:
+    """How the character's sheet pictures are framed: ``{"type", "frame", "aspects", "head",
+    "placeholder"}`` of its body type (humanoid when it has none or an unknown one), the frame being
+    its own sheet pose when it has one."""
+    kind = character.get("body_type")
+    if kind not in SHEET_BODIES:
+        kind = cast_store.DEFAULT_BODY_TYPE
+    body = {"type": kind, **SHEET_BODIES[kind]}
+    pose = " ".join(str(character.get("sheet_pose") or "").split()).rstrip(". ")
+    if pose:
+        body["frame"] = f"Full body, the whole figure centered in frame. Pose: {pose}."
+    return body
+
+
+def master_prompt(clause: str, mode: str, style: str, outfit: str = "", frame: str = BODY_FRAME) -> str:
     if mode == "text":
         lead = "Character design reference of an original character."
     elif mode == "upload":
@@ -134,15 +174,15 @@ def master_prompt(clause: str, mode: str, style: str, outfit: str = "") -> str:
         lead = ("Character design reference. The reference image is this character's approved master: keep "
                 "the same face, body proportions, colors and identity"
                 + (f", and change only the outfit to: {outfit.rstrip('.')}." if outfit else "."))
-    return _join(lead, clause, BODY_FRAME, BACKDROP, _style_sentence(style), NO_TEXT_CLAUSE)
+    return _join(lead, clause, frame, BACKDROP, _style_sentence(style), NO_TEXT_CLAUSE)
 
 
-def view_prompt(view: str, clause: str, style: str) -> str:
+def view_prompt(view: str, clause: str, style: str, frame: str = BODY_FRAME, head: str = HEAD_SHEET_TEXT) -> str:
     lead = ("Character turnaround reference. The reference image is this character's approved master: keep "
             "the identity exactly (same face, proportions, colors and outfit).")
     if view == "head_sheet":
-        return _join(lead, clause, HEAD_SHEET_TEXT, BACKDROP, _style_sentence(style), NO_TEXT_CLAUSE)
-    return _join(lead, clause, VIEW_TEXT[view], BODY_FRAME, BACKDROP, _style_sentence(style), NO_TEXT_CLAUSE)
+        return _join(lead, clause, head, BACKDROP, _style_sentence(style), NO_TEXT_CLAUSE)
+    return _join(lead, clause, VIEW_TEXT[view], frame, BACKDROP, _style_sentence(style), NO_TEXT_CLAUSE)
 
 
 def prompt_problems(prompt: str) -> list[str]:
@@ -201,6 +241,7 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
     model_path = sheet_model_path()
     clause = version["clause"]
     style = episode_style(episode_id)
+    body = sheet_body(character)
     if stage == "options":
         mode, ref_rows = options_mode(version, source)
         if mode == "outfit":
@@ -209,8 +250,9 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
         n = count if count is not None else (DEFAULT_TEXT_OPTIONS if mode == "text" else DEFAULT_REF_OPTIONS)
         if isinstance(n, bool) or not isinstance(n, int) or not lo <= n <= hi:
             raise SheetPlanError(f"Ask for {lo} to {hi} master options")
-        specs = [(cast_store.OPTION_ROLE, master_prompt(clause, mode, style, version.get("outfit") or ""))] * n
-        aspects = [BODY_ASPECTS] * n
+        prompt = master_prompt(clause, mode, style, version.get("outfit") or "", frame=body["frame"])
+        specs = [(cast_store.OPTION_ROLE, prompt)] * n
+        aspects = [body["aspects"]] * n
     else:
         masters = _active(version, cast_store.MASTER_ROLE)
         if not masters:
@@ -220,8 +262,8 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
         unknown = [v for v in wanted if v not in TURNAROUND_VIEWS]
         if unknown or not wanted or len(set(wanted)) != len(wanted):
             raise SheetPlanError(f"views must be distinct values of {list(TURNAROUND_VIEWS)}")
-        specs = [(v, view_prompt(v, clause, style)) for v in wanted]
-        aspects = [HEAD_ASPECTS if v == "head_sheet" else BODY_ASPECTS for v in wanted]
+        specs = [(v, view_prompt(v, clause, style, frame=body["frame"], head=body["head"])) for v in wanted]
+        aspects = [HEAD_ASPECTS if v == "head_sheet" else body["aspects"] for v in wanted]
     if live and any(r.get("placeholder") for r in ref_rows):
         raise SheetPlanError("The reference for this step is a dry-run placeholder; generate it live first")
     caps = check_sheet_model(model_path, len(ref_rows))
@@ -244,16 +286,18 @@ def plan_jobs(character: dict, version_no: int, stage: str, *, episode_id: str, 
             "character_id": character["character_id"], "version": version_no, "stage": stage, "view": view,
             "attempt": attempt, "prompt": prompt, "refs": refs, "ref_shas": [r["sha256"] for r in ref_rows],
             "aspect_ratio": aspect_ratio, "resolution": SHEET_RESOLUTION, "quality": SHEET_QUALITY,
-            "model_path": model_path, "episode_id": episode_id,
+            "model_path": model_path, "episode_id": episode_id, "body_type": body["type"],
         })
     return {"stage": stage, "mode": mode, "model_path": model_path, "jobs": jobs}
 
 
 def placeholder_image(job: dict) -> bytes:
-    """A deterministic dry-run stand-in for a sheet image (a plain figure shape, no text)."""
+    """A deterministic dry-run stand-in for a sheet image (a plain figure shape of the job's body
+    type, no text; a job planned before body types is humanoid)."""
     from PIL import Image, ImageDraw
     digest = hashlib.sha256(job["job_id"].encode()).digest()
-    size = PLACEHOLDER_HEAD if job["view"] == "head_sheet" else PLACEHOLDER_BODY
+    kind = job.get("body_type") if job.get("body_type") in SHEET_BODIES else cast_store.DEFAULT_BODY_TYPE
+    size = PLACEHOLDER_HEAD if job["view"] == "head_sheet" else SHEET_BODIES[kind]["placeholder"]
     bg = (200 + digest[0] % 40, 200 + digest[1] % 40, 200 + digest[2] % 40)
     fg = (60 + digest[3] % 120, 60 + digest[4] % 120, 60 + digest[5] % 120)
     img = Image.new("RGB", size, bg)
@@ -263,6 +307,13 @@ def placeholder_image(job: dict) -> bytes:
         for i in range(4):
             cx = w * (2 * i + 1) // 8
             draw.ellipse((cx - w // 14, h // 3, cx + w // 14, h // 3 + w // 7), fill=fg)
+    elif kind == "four_legged":
+        draw.ellipse((w * 3 // 16, h * 3 // 10, w * 11 // 16, h * 6 // 10), fill=fg)
+        draw.ellipse((w * 5 // 8, h * 3 // 20, w * 13 // 16, h * 2 // 5), fill=fg)
+        for x in (w // 4, w * 11 // 32, w * 17 // 32, w * 5 // 8):
+            draw.rectangle((x, h * 11 // 20, x + w // 32, h * 9 // 10), fill=fg)
+    elif kind == "other":
+        draw.ellipse((w // 4, h // 4, w * 3 // 4, h * 3 // 4), fill=fg)
     else:
         draw.ellipse((w * 3 // 8, h // 10, w * 5 // 8, h // 10 + w // 4), fill=fg)
         draw.rectangle((w * 5 // 16, h // 10 + w // 4, w * 11 // 16, h * 7 // 10), fill=fg)

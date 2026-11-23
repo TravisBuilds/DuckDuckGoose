@@ -157,6 +157,18 @@ test('G2: pictures still being made are counted apart; a failed one needs a deci
   assert.deepEqual([making.step, making.title, making.text], ['stills', 'Making your scene pictures', '0 of 4 ready. They show up below as they finish.']);
 });
 
+test('G2: a picture the picture check flagged waits for a decision, even one made before the check', () => {
+  const state = runState({ current_gate: 'G2_SCENE_STILLS', shots_count: 2, shot_decisions: { S01: 'approved', S02: 'approved' } });
+  const shots = [
+    { shot_id: 'S01', still_status: 'done', needs_decision: 'the QC judge failed its still' },
+    { shot_id: 'S02', still_status: 'done', needs_decision: null },
+  ];
+  assert.deepEqual(stillsToReview(state, shots), { review: 1, making: 0, total: 2 });
+  assert.equal(nextStep(state, null, null, { shots }).title, 'Review 1 scene picture');
+  const decided = shots.map((s) => ({ ...s, needs_decision: null }));
+  assert.equal(nextStep(state, null, null, { shots: decided }).title, 'Approve all scene pictures');
+});
+
 test('G2 without shot states (the studio home) counts from the run state', () => {
   const state = runState({ current_gate: 'G2_SCENE_STILLS', shots_count: 4, shot_decisions: { S01: 'approved' } });
   assert.deepEqual(stillsToReview(state, null), { review: 3, making: 0, total: 4 });

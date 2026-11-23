@@ -146,11 +146,19 @@ stateDiagram-v2
 
 **Validation:**
 1. **Pending retries refuse** - unreviewed retry stills must land first
-2. All stills must be recorded (needs_review or still_complete)
+2. All stills must be recorded (needs_review, still_complete, or qc_failed: a still the QC judge failed)
+3. **Undecided judge-failed stills refuse** - a shot whose kept still the QC judge failed needs a
+   person's decision made after the verdict (approve, select, retry or reject; docs/QC-JUDGES.md)
+4. **Undecided old-look stills refuse** - after a G2 resync took the revised words of a locked cast
+   look, a shot whose kept still was made with the old words needs a person's decision made after
+   the resync, even if it was approved before (docs/CAST.md, "Revising a locked look")
 
 **On approval:**
-- Signals all shot workflows to proceed to clips
-- Marks shots as approved in DB
+- Tells each child that keeps a judge-failed still a person kept (`keep_qc_failed_still`), then
+  signals all shot workflows to proceed to clips
+- Marks shots as approved in DB; a shot a person kept (approved or selected) is approved whatever
+  status an earlier decision left on its row (the approve and select-still routes also clear a
+  rejection from the row when they are accepted)
 
 **Implementation:** `EpisodeWorkflowV2.approve_g2_scene_stills()` with validator
 

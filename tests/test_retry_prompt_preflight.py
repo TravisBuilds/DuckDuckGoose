@@ -110,3 +110,31 @@ def test_amended_reroll_failing_prompt_lint_is_refused_before_spend(client, monk
     assert h.updates == []
     r = c.post("/api/episodes/ep05v2/shots/V24/retry", json={"prompt_append": "No lamps outside.", "reason": "t"})
     assert r.status_code == 200 and h.updates == [("retry_shot", ["V24", "No lamps outside."])], r.text
+
+
+PIP = "Pip: a small round robot with one green eye; outfit: a yellow raincoat."
+
+
+class _CastHandle(_Handle):
+    async def query(self, name, *args, **kw):
+        from tests.lint_helpers import lint_meta
+        out = await super().query(name, *args, **kw)
+        if name == "retry_prompt_plan":
+            out["shot_meta"] = lint_meta(cast=[{"character": "pip", "version": 1, "name": "Pip", "clause": PIP,
+                                                "locked": True}], text_policy="no_text")
+        return out
+
+
+def test_a_redo_of_a_cast_shot_is_linted_with_the_clauses_its_submit_adds(client, monkeypatch):
+    """The still submit adds each character's locked description and the no-text constraint before its
+    lint, so a redo whose prompt does not repeat them is not refused for them; a note the prompt as
+    sent would fail still is."""
+    from tests.lint_helpers import lint_ok
+    api_main, c = client
+    h = _CastHandle(lint_ok("Pip waits on the pier"))
+    monkeypatch.setattr(api_main, "temporal_client", _Client(h))
+    r = c.post("/api/episodes/ep61/shots/A01/retry", json={"prompt_append": "Warmer light.", "reason": "t"})
+    assert r.status_code == 200 and h.updates == [("retry_shot", ["A01", "Warmer light."])], r.text
+    r = c.post("/api/episodes/ep61/shots/A01/retry", json={"prompt_append": "A sign that says 'hi'.", "reason": "t"})
+    assert r.status_code == 409 and "asks for on-image text" in r.json()["detail"], r.text
+    assert len(h.updates) == 1

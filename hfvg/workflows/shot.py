@@ -35,6 +35,11 @@ with workflow.unsafe.imports_passed_through():
     import os
 
 
+# A still the QC judge FAILS waits at G2 for a person (docs/QC-JUDGES.md) instead of ending the shot.
+# patched(): a history that already ended on a judge FAIL replays unchanged.
+QC_FAIL_PARK_PATCH = "qc-fail-parks-at-g2-v1"
+
+
 # RuntimeError raised by the poll loop (confirmed provider failure, poll exhaustion) MUST fail the
 # workflow. In temporalio-python any non-ApplicationError exception only fails the workflow *task*,
 # which the server retries forever, so the workflow would never reach a terminal state.
@@ -57,6 +62,10 @@ class ShotWorkflow:
         # re-roll): this child ends quietly - no DB/ledger write, no clip (set by still_superseded)
         self.still_superseded_reason: str | None = None
         self.human_approved_still = False  # Track if human approved an escalated still
+        # The QC judge failed this still and it waits at G2 for a person: {"reason", "issues"}; and
+        # whether the parent passed on a person's decision to keep it (keep_qc_failed_still)
+        self.qc_failed: dict | None = None
+        self.qc_fail_kept = False
         self.end_image_url: str | None = None  # END frame URL (end-frame shots), set by signal
         self.cap_raised = False  # Signal that credit cap was raised
         self.end_still_requested = False  # generate_end_still signal (backfill for runs started before the fix)
@@ -118,6 +127,13 @@ class ShotWorkflow:
         anything (the kept version owns the shot's DB row, clip, manifest and ledger records) and
         never submits a clip. Releases both the human-review wait and the G2 wait."""
         self.still_superseded_reason = reason or "superseded by another still version at G2"
+
+    @workflow.signal
+    def keep_qc_failed_still(self):
+        """Signal from the parent at G2 approval, sent before stills_approved: a person kept this still
+        although the QC judge failed it (approved the shot or selected this version). Without it,
+        stills_approved never takes a judge-failed still to a clip."""
+        self.qc_fail_kept = True
 
     async def _wait_for_review(self, condition) -> None:
         """Human-review wait with the 24 h timer it always had. wait_condition RAISES on timeout, and an
@@ -193,6 +209,8 @@ class ShotWorkflow:
             "qc_constraints": self.qc_constraints,
             "qc_constraints_by_clip": list(self.qc_constraints_by_clip),
             "human_approved_still": self.human_approved_still,
+            "qc_failed": self.qc_failed,
+            "qc_fail_kept": self.qc_fail_kept,
             # Per-shot G2 status (Item 4)
             "still_status": self.still_status,
             "still_url": self.still_url,
@@ -613,6 +631,92 @@ class ShotWorkflow:
         except ApplicationError as e:
             workflow.logger.warning(f"Could not send retry_still_ready to {parent_id}: {e}")
 
+    async def _notify_parent_still_qc_failed(self, shot_plan: dict) -> None:
+        """Tell the episode workflow this still failed the QC judge and waits at G2 for a person."""
+        parent_id = shot_plan.get("parent_workflow_id")
+        if not parent_id:
+            return
+        try:
+            await workflow.get_external_workflow_handle(parent_id).signal(
+                "still_qc_failed", args=[{"shot_id": self.shot_id, "workflow_id": workflow.info().workflow_id,
+                                          "version": self.version, **(self.qc_failed or {})}]
+            )
+        except ApplicationError as e:
+            workflow.logger.warning(f"Could not send still_qc_failed to {parent_id}: {e}")
+
+    async def _park_qc_failed_still(self, shot_plan: dict, review_result: dict, still_prompt: str, attempt: int,
+                                    still_params: tuple, retry_policy: RetryPolicy) -> dict:
+        """The QC judge FAILED this still: it waits at G2 for a person instead of ending the shot, marked
+        judge-failed with the judge's reason (DB status qc_failed; the parent gets still_qc_failed). As on
+        the NEEDS_REVIEW path, the _end still is made first so the person sees the pair. Then: superseded
+        (another version kept) -> ends quietly; rejected -> recorded, no clip; kept (the parent sends
+        keep_qc_failed_still before stills_approved) -> clip like any human-approved still; released
+        without a keep -> fails as before, so G2 approval alone never takes a judge FAIL to a clip."""
+        refs, resolution, quality, aspect_ratio = still_params
+        issues = [str(i) for i in review_result.get("issues") or []]
+        reason = "; ".join(issues) or "the QC judge failed this still"
+        self.qc_failed = {"reason": reason, "issues": issues[:10]}
+        self.still_error = f"QC failed: {reason}"
+        workflow.logger.info(f"Still {self.shot_id} v{self.version} failed the QC judge, waiting at G2: {reason}")
+        if shot_plan.get("params", {}).get("end_frame"):
+            end_fail = await self._produce_end_still(
+                shot_plan, refs, resolution, quality, aspect_ratio, retry_policy
+            )
+            if end_fail:
+                return end_fail
+        await workflow.execute_activity(
+            record_shot_result,
+            args=[
+                os.getenv("DATABASE_PATH", "./data/studio.db"),
+                self.episode_id,
+                self.shot_id,
+                "qc_failed",
+                self.still_asset["url"],
+                None,  # clip_url
+                {"still_qc": review_result, "qc_failed": True},
+                attempt,
+                still_prompt,
+                True,  # clear_clip
+            ],
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=retry_policy,
+        )
+        # The parent records the failure (G2 then waits for a decision on it) before a retry child
+        # frees G2 from its pending retry, so G2 is never open with neither guard in place.
+        await self._notify_parent_still_qc_failed(shot_plan)
+        await self._notify_parent_retry_still_ready(shot_plan)
+        await self._wait_for_review(self._released)
+        if self.still_superseded_reason is not None and not self.stills_approved:
+            return self._superseded_result()
+        if self.still_rejected_reason is None:
+            if not self.qc_fail_kept:
+                self.still_status = "failed"
+                workflow.logger.error(f"Still {self.shot_id} v{self.version} was released at G2 with no decision "
+                                      f"to keep it after the QC judge failed it")
+                return {"shot_id": self.shot_id, "status": "failed", "still_url": self.still_asset["url"],
+                        "error": f"QC failed: {reason}"}
+            workflow.logger.info(f"Judge-failed still {self.shot_id} v{self.version} kept by a person")
+            self.human_approved_still = True
+            self.still_error = None
+            review_result = {**review_result, "human_approved": True, "qc_failed_kept": True}
+            await workflow.execute_activity(
+                record_shot_result,
+                args=[
+                    os.getenv("DATABASE_PATH", "./data/studio.db"),
+                    self.episode_id,
+                    self.shot_id,
+                    "still_complete",
+                    self.still_asset["url"],
+                    None,  # clip_url
+                    {"still_qc": review_result, "human_approved": True},
+                    attempt,
+                    still_prompt,
+                ],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=retry_policy,
+            )
+        return await self._g2_wait_then_clip(shot_plan, review_result, retry_policy, attempt)
+
     @workflow.run
     async def run(self, episode_id: str, shot_plan: dict) -> dict:
         """
@@ -944,6 +1048,14 @@ class ShotWorkflow:
                     
                     break
                 else:
+                    # A judge's FAIL waits at G2 for a person, never passing or re-rolling on its own. G2
+                    # children only: a canary has no parent and a recompose has its own decision.
+                    if (shot_plan.get("parent_workflow_id") and not shot_plan.get("recompose")
+                            and workflow.patched(QC_FAIL_PARK_PATCH)):
+                        return await self._park_qc_failed_still(
+                            shot_plan, review_result, still_prompt, attempt,
+                            (refs, resolution, quality, aspect_ratio), retry_policy,
+                        )
                     # QC failed without escalation (shouldn't happen in live; review always escalates)
                     # Treat as terminal failure to prevent automatic paid retry loop
                     workflow.logger.error(

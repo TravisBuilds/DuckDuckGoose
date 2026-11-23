@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BODY_TYPES,
   MAX_CAST_PER_SHOT,
   SHEET_STEP_TEXT,
   SMALL_PICTURE_NOTE,
@@ -8,6 +9,8 @@ import {
   addForm,
   addWithPhotoProblem,
   anyActiveJobs,
+  bodyFields,
+  bodyNote,
   castEntries,
   castImportBody,
   castPicks,
@@ -19,6 +22,7 @@ import {
   estimateWhat,
   kitWithCast,
   latestRequest,
+  lockedDescription,
   optionCounts,
   pictureHint,
   pictureProblem,
@@ -157,6 +161,30 @@ test('a character with a photo is sent as one form: the text, then the rights an
   ]);
 });
 
+test('a character with a photo sends its body type and pose only when it has them', () => {
+  const answers = { rights: 'original', realPerson: false, likenessConsent: false };
+  assert.deepEqual(withPictureFields({ name: 'Wool', body_type: 'four_legged', sheet_pose: ' standing side-on ' }, answers), [
+    ['name', 'Wool'], ['role', ''], ['description', ''], ['body_type', 'four_legged'], ['sheet_pose', 'standing side-on'],
+    ['rights', 'original'], ['depicts_real_person', 'false'], ['likeness_consent', 'false'],
+  ]);
+  assert.deepEqual(withPictureFields({ name: 'Mara', body_type: 'humanoid', sheet_pose: '  ' }, answers),
+    withPictureFields({ name: 'Mara' }, answers), 'a humanoid without its own pose sends what it always sent');
+  assert.deepEqual(bodyFields({ body_type: 'other' }), [['body_type', 'other']]);
+  assert.deepEqual(bodyFields(null), []);
+});
+
+test('the body types are the API ones, humanoid first, and a card names a body only when it is not the default', () => {
+  assert.deepEqual(BODY_TYPES.map(b => b.value), ['humanoid', 'four_legged', 'other']);
+  assert.equal(bodyNote({ body_type: 'humanoid', sheet_pose: '' }), null);
+  assert.equal(bodyNote({}), null, 'a character from before body types is humanoid');
+  assert.equal(bodyNote({ body_type: 'four_legged' }), 'Body: four legs.');
+  assert.equal(bodyNote({ body_type: 'humanoid', sheet_pose: 'sitting on a stool' }),
+    'Body: two legs, like a person. Pose in the character sheet: sitting on a stool');
+  assert.equal(bodyNote({ body_type: 'other', sheet_pose: 'perched, wings folded' }),
+    'Body: another kind of body. Pose in the character sheet: perched, wings folded');
+  assert.equal(bodyNote({ body_type: 'unheard-of' }), 'Body: another kind of body.');
+});
+
 test('pictures are grouped: uploads with the main one first, look options, the sheet in order', () => {
   const version = {
     images: [
@@ -226,6 +254,16 @@ test('the estimate is shown before anything is made, free in preview mode', () =
 test('a sheet of stand-in pictures is flagged', () => {
   assert.equal(sheetHasPlaceholders({ images: [image('master', { placeholder: true })] }), true);
   assert.equal(sheetHasPlaceholders({ images: [image('master'), image('upload', { placeholder: true })] }), false);
+});
+
+test('the description a look was locked with is read back from its words', () => {
+  const pip = { name: 'Pip', description: 'edited since the lock' };
+  assert.equal(lockedDescription(pip, { clause: 'Pip: a small round robot; outfit: a yellow raincoat.',
+    outfit: 'a yellow raincoat' }), 'a small round robot');
+  assert.equal(lockedDescription(pip, { clause: 'Pip: a small round robot.', outfit: '' }), 'a small round robot');
+  assert.equal(lockedDescription(pip, { clause: 'Pip.', outfit: '' }), 'edited since the lock');
+  assert.equal(lockedDescription({ ...pip, name: 'Pip the Second' }, { clause: 'Pip: a small round robot.', outfit: '' }),
+    'edited since the lock');
 });
 
 test('shot cast picks round-trip to shots.json entries; the default version is the id alone', () => {

@@ -61,6 +61,24 @@ def test_recompose_prompt_missing_kit_clauses_is_refused_before_queueing(client,
     assert [u[0] for u in h.updates] == ["recompose_shot"]
 
 
+def test_a_recompose_of_a_cast_shot_is_linted_with_the_clauses_its_submit_adds(client, episode, monkeypatch):  # noqa: F811
+    """The child's still submit adds the locked description and the no-text constraint from its plan, so
+    the route does not refuse a new composition that leaves them out; the prompt is sent as written."""
+    from tests.test_retry_prompt_preflight import PIP
+    api_main, c = client
+    h = _Handle({**META, "cast": [{"character": "pip", "version": 1, "name": "Pip", "clause": PIP, "locked": True}],
+                 "text_policy": "no_text"})
+    monkeypatch.setattr(api_main, "temporal_client", _Client(h))
+    body = {"reason": "Studio", "prompt": episode("Pip alone on the boardwalk"), "ref_keys": ["character"]}
+    r = c.post("/api/episodes/ep77/shots/A01/recompose", json=body)
+    assert r.status_code == 200, r.text
+    assert [u[0] for u in h.updates] == ["recompose_shot"] and PIP not in h.updates[0][1][2]
+    body["prompt"] = episode("Pip holds a sign that says 'hi' on the boardwalk")
+    r = c.post("/api/episodes/ep77/shots/A01/recompose", json=body)
+    assert r.status_code == 409 and "asks for on-image text" in r.json()["detail"], r.text
+    assert len(h.updates) == 1
+
+
 def test_recompose_without_lint_metadata_fails_closed(client, episode, monkeypatch):  # noqa: F811
     api_main, c = client
     h = _Handle(None)

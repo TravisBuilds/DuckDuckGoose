@@ -70,6 +70,7 @@ export const SHOT_STATUS_LABELS: Record<string, string> = {
   skipped: 'Skipped',
   approved: 'Approved',
   rejected: 'Redo requested',
+  qc_failed: 'Flagged by the picture check',
 };
 
 export function shotStatusLabel(status: string | null | undefined): string {
@@ -80,6 +81,9 @@ export function shotStatusLabel(status: string | null | undefined): string {
 /**
  * The chip on a scene picture: your decision first, then where the picture is. allApproved: the scene
  * pictures step has passed, so a finished picture without a decision of its own went ahead with the rest.
+ * flagged: the picture waits for your decision before the pictures can be approved (the picture check
+ * failed it), so it never reads as approved with the rest. oldLook: it waits for your decision because
+ * it was made before a locked look in it was changed.
  */
 export function stillChip(shot: {
   stillStatus?: string | null;
@@ -87,9 +91,13 @@ export function stillChip(shot: {
   retrying?: boolean;
   held?: boolean;
   allApproved?: boolean;
+  flagged?: boolean;
+  oldLook?: boolean;
 }): { label: string; tone: LabelTone } {
   if (shot.held) return { label: 'Held for an admin to check', tone: 'warn' };
   if (shot.retrying) return { label: 'Being made again', tone: 'wait' };
+  if (shot.flagged) return { label: 'Flagged by the picture check', tone: 'warn' };
+  if (shot.oldLook) return { label: 'Made before the look changed', tone: 'warn' };
   if (shot.decision === 'approved') return { label: 'Approved', tone: 'ok' };
   if (shot.decision === 'rejected') return { label: 'Redo requested', tone: 'warn' };
   const status = (shot.stillStatus ?? '').toLowerCase();

@@ -1,6 +1,6 @@
 """Cast library routes: series, characters, versions (outfits), reference uploads, character sheets
 and who is in frame in each shot. Mounted by api/main.py under the same app-wide guard
-(``require_admin_auth``); every route here allows members.
+(``require_admin_auth``); every route here allows members except revising a locked look (admins only).
 
 Who may change what (docs/AUTHENTICATION.md): a member's POST under ``/api/episodes/{episode_id}/``
 is checked against the episode's owner before the handler runs (the app-wide guard); a change to a
@@ -451,12 +451,16 @@ class CharacterCreateRequest(BaseModel):
     description: str = Field("", max_length=cast_store.DESCRIPTION_MAX)
     outfit: str = Field("", max_length=cast_store.OUTFIT_MAX)
     slug: str | None = Field(None, max_length=32)
+    body_type: str | None = Field(None, max_length=20)
+    sheet_pose: str = Field("", max_length=cast_store.POSE_MAX)
 
 
 class CharacterUpdateRequest(BaseModel):
     name: str | None = Field(None, max_length=cast_store.NAME_MAX)
     role: str | None = Field(None, max_length=cast_store.ROLE_MAX)
     description: str | None = Field(None, max_length=cast_store.DESCRIPTION_MAX)
+    body_type: str | None = Field(None, max_length=20)
+    sheet_pose: str | None = Field(None, max_length=cast_store.POSE_MAX)
 
 
 class CharacterDeleteRequest(BaseModel):
@@ -485,6 +489,12 @@ class VersionCreateRequest(BaseModel):
 class VersionUpdateRequest(BaseModel):
     label: str | None = Field(None, max_length=cast_store.LABEL_MAX)
     outfit: str | None = Field(None, max_length=cast_store.OUTFIT_MAX)
+
+
+class LockReviseRequest(BaseModel):
+    description: str = Field(..., min_length=1, max_length=cast_store.DESCRIPTION_MAX)
+    outfit: str | None = Field(None, max_length=cast_store.OUTFIT_MAX)
+    reason: str = Field(..., min_length=1, max_length=cast_store.REASON_MAX)
 
 
 class SheetRequest(BaseModel):
@@ -611,6 +621,7 @@ async def get_episode_cast(episode_id: str, authorization: str | None = Header(N
                    "max_characters": cast_store.MAX_CHARACTERS_PER_LIBRARY, "max_cast_per_shot": MAX_CAST_PER_SHOT},
         "attestation": {"rights": list(cast_store.RIGHTS_VALUES), "likeness_gate": cast_store.LIKENESS_CONSENT},
         "can_edit": await _can_edit(episode_id, library, authorization, studio_admin_token),
+        "can_revise_locks": is_admin,
     }
 
 get_episode_cast.allow_members = True
@@ -625,9 +636,10 @@ async def create_cast_character(episode_id: str, request: CharacterCreateRequest
     actor, _, _ = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
-    _check_text(request.name, request.role, request.description, request.outfit)
+    _check_text(request.name, request.role, request.description, request.outfit, request.sheet_pose)
     character = await _call(cast_store.create_character, library, request.name, request.role, request.description,
-                            request.slug or None, actor, episode_id=episode_id, outfit=request.outfit)
+                            request.slug or None, actor, episode_id=episode_id, outfit=request.outfit,
+                            body_type=request.body_type, sheet_pose=request.sheet_pose)
     return {"character": _character_out(character)}
 
 create_cast_character.allow_members = True
@@ -640,6 +652,8 @@ async def create_cast_character_with_picture(
     name: str = Form(..., min_length=1, max_length=cast_store.NAME_MAX),
     role: str = Form("", max_length=cast_store.ROLE_MAX),
     description: str = Form("", max_length=cast_store.DESCRIPTION_MAX),
+    body_type: str = Form("", max_length=20),
+    sheet_pose: str = Form("", max_length=cast_store.POSE_MAX),
     rights: str = Form(""),
     depicts_real_person: str = Form("false"),
     likeness_consent: str = Form("false"),
@@ -648,13 +662,14 @@ async def create_cast_character_with_picture(
     studio_admin_token: str | None = Cookie(None),
 ):
     """Add a character to the episode's cast from a reference picture, in one step: the name, part
-    and description with the picture and its rights attestation. The picture gets the checks, limits
-    and private storage of a version's picture upload; nothing is kept when any of it is refused."""
+    and description (and body type and sheet pose) with the picture and its rights attestation. The
+    picture gets the checks, limits and private storage of a version's picture upload; nothing is kept
+    when any of it is refused."""
     episode_id = _episode_id(episode_id)
     actor, _, _ = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
-    _check_text(name, role, description)
+    _check_text(name, role, description, sheet_pose)
     attestation = await _call(cast_store.validate_attestation, rights, _flag(depicts_real_person),
                               _flag(likeness_consent), note)
     limit = cast_store.max_upload_bytes()
@@ -664,7 +679,7 @@ async def create_cast_character_with_picture(
                                                     f"{limit // (1024 * 1024)} MB")
     character = await _call(cast_store.create_character_with_upload, library, name, role, description, data,
                             filename=image_file.filename, attestation=attestation, actor=actor,
-                            episode_id=episode_id)
+                            episode_id=episode_id, body_type=body_type or None, sheet_pose=sheet_pose)
     return {"character": _character_out(character)}
 
 create_cast_character_with_picture.allow_members = True
@@ -761,15 +776,17 @@ get_cast_character.allow_members = True
 async def update_cast_character(episode_id: str, character_id: str, request: CharacterUpdateRequest,
                                 authorization: str | None = Header(None),
                                 studio_admin_token: str | None = Cookie(None)):
-    """Edit the name, role or description (a locked version keeps the description it was locked with)."""
+    """Edit the name, role, description, body type or sheet pose (a locked version keeps the
+    description and sheet pictures it was locked with)."""
     episode_id = _episode_id(episode_id)
     actor, _, _ = await _actor(authorization, studio_admin_token)
     library = await _library(episode_id)
     await _require_library_writer(library, authorization, studio_admin_token)
     await _character_in(library, character_id)
-    _check_text(request.name, request.role, request.description)
+    _check_text(request.name, request.role, request.description, request.sheet_pose)
     character = await _call(cast_store.update_character, character_id, name=request.name, role=request.role,
-                            description=request.description, actor=actor, episode_id=episode_id)
+                            description=request.description, actor=actor, episode_id=episode_id,
+                            body_type=request.body_type, sheet_pose=request.sheet_pose)
     return {"character": _character_out(character)}
 
 update_cast_character.allow_members = True
@@ -830,6 +847,25 @@ async def update_cast_version(episode_id: str, character_id: str, version: int, 
     return {"version": updated}
 
 update_cast_version.allow_members = True
+
+
+@router.post("/api/episodes/{episode_id}/cast/{character_id}/versions/{version}/revise-lock")
+async def revise_cast_lock(episode_id: str, character_id: str, version: int, request: LockReviseRequest,
+                           authorization: str | None = Header(None), studio_admin_token: str | None = Cookie(None)):
+    """Admins only: rewrite the words of a locked look, also while runs are open, with a reason
+    (cast_store.revise_locked_version; the sheet pictures stay). A run uses the new words once its plans
+    are resynced at G2 (POST /api/episodes/{id}/resync-plans), which flags the stills made with the old
+    words for a person to decide."""
+    episode_id = _episode_id(episode_id)
+    actor, _, is_admin = await _actor(authorization, studio_admin_token)
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only an admin can revise a locked look")
+    library = await _library(episode_id)
+    await _character_in(library, character_id)
+    _check_text(request.description, request.outfit)
+    revised = await _call(cast_store.revise_locked_version, character_id, version, description=request.description,
+                          outfit=request.outfit, reason=request.reason, actor=actor, episode_id=episode_id)
+    return {"version": revised, "character": _character_out(await _call(cast_store.get_character, character_id))}
 
 
 @router.post("/api/episodes/{episode_id}/cast/{character_id}/versions/{version}/images")

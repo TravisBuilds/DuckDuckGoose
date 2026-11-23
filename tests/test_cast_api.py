@@ -1013,6 +1013,33 @@ async def test_live_sheets_check_the_balance_before_starting(studio, monkeypatch
     assert _sheet_jobs() == []
 
 
+async def test_only_an_admin_revises_a_locked_look_also_while_a_run_is_open(studio):
+    from hfvg.content_policy import hard_stop_terms
+    from tests.cast_helpers import complete_sheet
+    owner, other, admin = _client(studio, "owner"), _client(studio, "other"), _client(studio, "admin")
+    pip = _create(owner)
+    complete_sheet(cast_store.get_character(pip["character_id"]))
+    url = f"{_base()}/{pip['character_id']}/versions/1"
+    assert owner.post(f"{url}/approve", json={}).status_code == 200
+    locked = cast_store.get_version(pip["character_id"], 1)
+    body = {"description": "a tall square robot", "outfit": "a red scarf", "reason": "the director's new look"}
+    for member in (owner, other):
+        assert member.post(f"{url}/revise-lock", json=body).status_code == 403
+    assert owner.get(_base()).json()["can_revise_locks"] is False
+    assert cast_store.get_version(pip["character_id"], 1)["lock_hash"] == locked["lock_hash"]
+    _running(studio)
+    res = admin.post(f"{url}/revise-lock", json=body)
+    assert res.status_code == 200, res.text
+    assert res.json()["version"]["clause"] == "Pip: a tall square robot; outfit: a red scarf."
+    view = admin.get(_base()).json()
+    assert view["can_revise_locks"] is True
+    assert view["characters"][0]["versions"][0]["lock_revisions"][0]["reason"] == "the director's new look"
+    assert admin.post(f"{url}/revise-lock", json={**body, "reason": ""}).status_code == 422
+    bad = next(t for t in ("gore", "nude", "blood") if hard_stop_terms(t))
+    res = admin.post(f"{url}/revise-lock", json={**body, "description": f"covered in {bad}"})
+    assert res.status_code == 400 and res.json()["detail"].startswith("Please reword"), res.text
+
+
 async def test_placeholders_cannot_be_locked_in_live_mode(studio, monkeypatch):
     from tests.cast_helpers import complete_sheet
     owner = _client(studio, "owner")

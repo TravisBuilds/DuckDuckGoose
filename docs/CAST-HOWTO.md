@@ -20,6 +20,11 @@ Technical details are in [CAST.md](CAST.md) and [PROPS.md](PROPS.md).
 Write the look the way you want it on screen, every time: age, build, face, hair, colours, clothing.
 That exact description goes into every shot the character is in.
 
+Choose the **Body** too: **Two legs, like a person** (the default), **Four legs**, or **Another kind of
+body**. It decides how the character stands in their character sheet (step 3). To pick the pose
+yourself, use **Edit name, description and body** and fill in **Pose in the character sheet**, for
+example "sitting upright, wings folded". A change applies to sheet pictures made after it.
+
 ## 2. Add a reference picture
 
 Under the character, choose a picture and answer **Whose picture is this?**:
@@ -56,6 +61,12 @@ character uses those pictures.
 5. **Approve and lock.** When every picture looks like the same character, press **Approve and lock
    this look**. The sheet can't be changed after this, and the description it was locked with stays
    with it.
+
+**Admins only:** the words of a locked look (its description and outfit) can still be changed, also
+during a run, with **Change the locked words** under the look. Give the reason. The pictures stay.
+In a video already at the scene pictures step, re-sync its plans next: new pictures then use the new
+words, and each picture already made with the old words is marked **Made before the look changed**
+until you approve it or make it again.
 
 Paid sheets need the video in live mode (**Enable Live Mode** on the video's page). Before each
 picture, the studio checks the price, your balance and this video's budget again. If one of them
@@ -147,7 +158,7 @@ admin) can change it.
 | "switch it to live mode first" | Sheet pictures are paid. Press **Enable Live Mode** on the video's page. |
 | "Some pictures were not made" | The list says why (for example, the price, your balance or the budget changed). Check the price again and make them again. |
 | "is being made right now" | Wait for the current run to end, then change the cast. |
-| "Version 1 is locked" | Locked looks can't change. Add a **New outfit** instead. |
+| "Version 1 is locked" | Locked looks can't change. Add a **New outfit** instead, or ask an admin to change its words. |
 | "Only the people working on this episode (and admins) can see its cast" | The video belongs to someone else. Ask its owner or an admin. |
 | "is a place, not a prop" (or "a prop, not a place") | Pick it under **Place** instead, or under **Props**. |
 | "needs a picture prompt" | A shot's picture prompt can't be empty. Write one, or **Undo**. |

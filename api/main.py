@@ -3875,6 +3875,7 @@ async def approve_still(
                 # "approve" (G-GATE-1 map) on the episode workflow; refusals (not at G2, retry pending,
                 # G2 already approved) come back as 409.
                 result = await _execute_episode_update(episode_id, "approve_shot", [shot_id], "Approve")
+                await _record_g2_keep(episode_id, shot_id, approved=True)
                 await _audit(episode_id, "approve_shot", f"Shot {shot_id} approved at G2")
                 return {"success": True, "shot_id": shot_id, "workflow_type": "episode",
                         "message": result.get("message") if isinstance(result, dict) else "Shot approved"}
@@ -3917,6 +3918,23 @@ async def approve_still(
 
 # Mark approve_still to allow members
 approve_still.allow_members = True
+
+
+async def _record_g2_keep(episode_id: str, shot_id: str, approved: bool) -> None:
+    """The shot's row once a person kept its still at G2 (an approve, or a version selected), matching
+    the workflow's decision: it no longer says the still was rejected (status and reason) or failed
+    the QC judge. An approve marks it approved; a selection (G2 still to come) puts a rejected or
+    judge-failed row back to still_complete. A failed or blocked shot keeps its status."""
+    status = ("CASE WHEN status IN ('failed', 'blocked') THEN status ELSE 'approved' END" if approved
+              else "CASE WHEN status IN ('rejected', 'qc_failed') THEN 'still_complete' ELSE status END")
+    import aiosqlite
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute(
+            f"""UPDATE shots SET status = {status}, rejection_reason = NULL, updated_at = datetime('now')
+                WHERE episode_id = ? AND shot_id = ?""",
+            (episode_id, shot_id),
+        )
+        await db.commit()
 
 STUDIO_UPDATING = "The studio is updating. Try again in a minute."
 
@@ -4219,6 +4237,7 @@ async def select_still(
                                                     + "; ".join(problems))
     result = await _execute_episode_update(episode_id, "select_still_version",
                                            [shot_id, request.version, reason], "Still select")
+    await _record_g2_keep(episode_id, shot_id, approved=False)
     await _audit(episode_id, "select_still_version",
                  f"Shot {shot_id} keeps still v{request.version} ({plan.get('workflow_id')}) instead of "
                  f"v{result.get('previous_version') if isinstance(result, dict) else '?'}: {reason}")
@@ -4245,8 +4264,10 @@ async def resync_plans(
     same parser and path the episode used at start) and put the corrected TEXT fields in force:
     still re-rolls use the new prompt/end_prompt, and every still child parked at G2 gets the new
     clip_prompt/qc_fail_if for its clip submit and clip QC. Structural changes (shot set, shot_meta,
-    refs, model, duration, end frame) are refused with 409 (they need a new G1). No spend; does NOT
-    approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
+    refs, model, duration, end frame) are refused with 409 (they need a new G1), except the revised
+    words of a locked cast look (an admin's revise-lock): later stills use them, and each still made
+    with the old words waits for a person's decision before G2 (result "old_lock_stills"). No spend;
+    does NOT approve G2. Check the result with GET /api/episodes/{id}/clip-plans."""
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
     reason = request.reason.strip()
@@ -4254,10 +4275,13 @@ async def resync_plans(
         raise HTTPException(status_code=422, detail="reason is required")
     result = await _execute_episode_update(episode_id, "resync_shot_plans", [reason], "Plan resync")
     changed = result.get("changed", {}) if isinstance(result, dict) else {}
+    flagged = sum(len(w) for w in (result.get("old_lock_stills") or {}).values()) if isinstance(result, dict) else 0
     await _audit(episode_id, "resync_shot_plans",
                  f"G2 package resync ({reason}): " + ", ".join(f"{k}[{'/'.join(v)}]" for k, v in changed.items()))
-    return {"success": True, "episode_id": episode_id, "result": result,
-            "message": f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"}
+    message = f"{len(changed)} shot plan(s) re-synced (G2 itself is NOT approved)"
+    if flagged:
+        message += f"; {flagged} still(s) made with the old cast words wait for your decision"
+    return {"success": True, "episode_id": episode_id, "result": result, "message": message}
 
 
 # Mark resync_plans to allow members
@@ -4551,7 +4575,8 @@ async def recompose_shot(
         still_prompt, _ = inject_continuity_locks(request.prompt, shot_meta, _kit, "still")
         sent_clip_prompt, _ = inject_continuity_locks(request.clip_prompt or still_prompt, shot_meta, _kit, "clip")
     clip_prompt = sent_clip_prompt or still_prompt
-    bad = _pf.prompt_limit_violations(shot_id, still_prompt=still_prompt,
+    still_as_sent = _with_cast_clauses(still_prompt, shot_meta)
+    bad = _pf.prompt_limit_violations(shot_id, still_prompt=still_as_sent,
                                       clip_prompt=clip_prompt,
                                       clip_model_alias=clip_model)
     if bad:
@@ -4559,7 +4584,7 @@ async def recompose_shot(
                             + "; ".join(v.message for v in bad))
     # GAP-24: the same prompt + moderation lint the paid submits enforce, run here so a bad prompt is
     # refused at the route instead of failing inside the child (ep05full F06 recompose 1).
-    problems = _recompose_lint_problems(episode_id, shot_id, still_prompt, clip_prompt, shot_meta,
+    problems = _recompose_lint_problems(episode_id, shot_id, still_as_sent, clip_prompt, shot_meta,
                                         refs, clip_model)
     if problems:
         raise HTTPException(status_code=409, detail="Prompt lint refused the recompose before any spend: "
@@ -4586,6 +4611,13 @@ async def recompose_shot(
         await db.commit()
     return {"success": True, "episode_id": episode_id, "shot_id": shot_id, "result": result,
             "message": f"Recompose queued for {shot_id}; its still parks for /recompose/decision"}
+
+
+def _with_cast_clauses(still_prompt: str, shot_meta: dict | None) -> str:
+    """A still prompt with the cast, props and no-text clauses the paid still submit adds from the
+    plan (hfvg.activities.studio_generation), so a route's length check and lint see what is sent."""
+    from hfvg.cast_prompt import inject_cast_prompt
+    return inject_cast_prompt(still_prompt, shot_meta)[0]
 
 
 def _recompose_lint_problems(episode_id: str, shot_id: str, still_prompt: str, clip_prompt: str,
@@ -5292,21 +5324,26 @@ def _retry_prompt_problem(episode_id: str, shot_id: str, plan: dict) -> str | No
     if not plan.get("found"):
         return None
     from hfvg import preflight as _pf
+    from hfvg.prompt_lint import PromptLintError, inject_continuity_locks, lint_violations, load_lint_kit
+    try:
+        kit = load_lint_kit(episode_id)
+    except PromptLintError:
+        kit = None
+    still = plan["still_prompt"]
+    if plan.get("shot_meta") is not None:
+        if kit is not None:
+            still, _ = inject_continuity_locks(still, plan["shot_meta"], kit, "still")
+        still = _with_cast_clauses(still, plan["shot_meta"])
     bad = _pf.prompt_limit_violations(
-        shot_id, still_prompt=plan["still_prompt"], clip_prompt=plan["clip_prompt"],
+        shot_id, still_prompt=still, clip_prompt=plan["clip_prompt"],
         clip_model_alias=plan.get("clip_model"))
     if bad:
         return "Preflight refused the amended re-roll before any spend: " + "; ".join(v.message for v in bad)
     # The amended still prompt must also pass the episode prompt lint (the child's pre-submit gate).
     # Refusing here keeps a doomed re-roll from consuming an attempt.
     # No kit loadable here: left to the child's fail-closed gate.
-    from hfvg.prompt_lint import PromptLintError, lint_violations, load_lint_kit
-    try:
-        kit = load_lint_kit(episode_id)
-    except PromptLintError:
-        kit = None
     if kit is not None and plan.get("shot_meta") is not None:
-        lint_bad = lint_violations(plan["still_prompt"], plan["shot_meta"], kit)
+        lint_bad = lint_violations(still, plan["shot_meta"], kit)
         if lint_bad:
             return "Prompt lint refused the amended re-roll before any spend: " + "; ".join(lint_bad)
     return None
@@ -7487,6 +7524,8 @@ async def get_shot_states(
             raise HTTPException(status_code=404, detail=f"No workflow found for episode {episode_id}")
         raise HTTPException(status_code=500, detail=f"Error querying workflow: {e}")
     cast_hidden = not await cast_routes.may_see_episode_cast(episode_id, authorization, studio_admin_token)
+    flags_of = state.get("still_flags") or {}
+    undecided = state.get("stills_needing_decision") or {}
     out: dict[str, dict] = {}
     for shot_id, wf_id in sorted((state.get("shot_workflow_ids") or {}).items()):
         try:
@@ -7494,6 +7533,9 @@ async def get_shot_states(
         except Exception as e:
             out[shot_id] = {"available": False, "workflow_id": wf_id, "reason": str(e)[:200]}
             continue
+        flags = flags_of.get(shot_id) or {}
+        qc_failed = flags.get("qc_failed")
+        old_lock = flags.get("old_lock")
         moderation = child.get("moderation") or {}
         escalation = child.get("moderation_escalation")
         if cast_hidden and escalation:
@@ -7511,6 +7553,15 @@ async def get_shot_states(
             "moderation_escalation": escalation,
             "pre_approved": bool(child.get("pre_approved")),
             "moderation_lint": {} if cast_hidden else child.get("moderation_lint") or {},
+            # The QC judge failed the kept still: a person keeps it (approve / select), makes it again or
+            # rejects it before G2. The judge's words can quote the prompt, so cast_hidden drops them.
+            "qc_failed": ({"reason": None if cast_hidden else qc_failed.get("reason"),
+                           "decided": bool(qc_failed.get("decided"))} if qc_failed else None),
+            # The still was made with cast words an admin revised since (a G2 resync took them): a
+            # person keeps it or makes it again before G2. The names are cast, so cast_hidden drops them.
+            "old_lock": ({"characters": None if cast_hidden else list(old_lock.get("characters") or []),
+                          "decided": bool(old_lock.get("decided"))} if old_lock else None),
+            "needs_decision": undecided.get(shot_id),
         }
     return {"episode_id": episode_id, "shots": out, "cast_hidden": cast_hidden}
 

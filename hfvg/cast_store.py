@@ -50,8 +50,16 @@ THUMB_PX = 384
 NAME_MAX = 60
 ROLE_MAX = 80
 DESCRIPTION_MAX = 600
-OUTFIT_MAX = 300
+OUTFIT_MAX = 600
 LABEL_MAX = 60
+REASON_MAX = 300
+POSE_MAX = 200
+LOCK_REVISE_ACTION = "version_lock_revise"
+
+# How a character's body is built; its sheet pictures are framed for it (hfvg.cast_sheets). A
+# character's own sheet pose, when it has one, replaces the body type's pose.
+BODY_TYPES = ("humanoid", "four_legged", "other")
+DEFAULT_BODY_TYPE = "humanoid"
 
 # Rights attestation for every upload: the creator made the image or owns the rights to use it.
 RIGHTS_VALUES = ("original", "owned")
@@ -152,10 +160,11 @@ def _env_int(name: str, default: int) -> int:
 
 @contextmanager
 def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
-    """A connection with the cast, props, universe, concept frame and kept start tables present (the
-    migrations run if this DB never had them)."""
+    """A connection with the cast, props, universe, concept frame, kept start and character body tables
+    present (the migrations run if this DB never had them)."""
     from hfvg.migrations import (
         apply_cast_library_sync,
+        apply_cast_sheet_pose_sync,
         apply_concept_frames_sync,
         apply_kept_starts_sync,
         apply_props_library_sync,
@@ -176,6 +185,7 @@ def connect(path: str | None = None) -> Iterator[sqlite3.Connection]:
         apply_universe_story_sync(conn)
         apply_concept_frames_sync(conn)
         apply_kept_starts_sync(conn)
+        apply_cast_sheet_pose_sync(conn)
         yield conn
     finally:
         conn.close()
@@ -356,15 +366,54 @@ def _unique_slug(conn, kind: str, library_id: str, wanted: str) -> str:
     raise CastConflict("Too many characters with this name")
 
 
-def _character_fields(name: str, role: str, description: str, outfit: str, slug: str | None) -> dict:
+def _character_fields(name: str, role: str, description: str, outfit: str, slug: str | None,
+                      body_type: str | None = None, sheet_pose: str | None = None) -> dict:
     fields = {"name": _clean(name, "Name", NAME_MAX, required=True), "role": _clean(role, "Role", ROLE_MAX),
               "description": _clean(description, "Description", DESCRIPTION_MAX),
-              "outfit": _clean(outfit, "Outfit", OUTFIT_MAX), "slug": None}
+              "outfit": _clean(outfit, "Outfit", OUTFIT_MAX), "slug": None,
+              "body": _body_fields(body_type, sheet_pose)}
     if slug is not None:
         fields["slug"] = str(slug).strip().lower()
         if not SLUG_RE.match(fields["slug"]):
             raise CastError(f"Character id {fields['slug']!r} must be lower-case letters, digits and dashes (max 32)")
     return fields
+
+
+def _body_fields(body_type: Any, sheet_pose: Any) -> dict:
+    """The body type and sheet pose a request sets (None leaves that one as it is)."""
+    fields: dict[str, str] = {}
+    if body_type is not None:
+        wanted = body_type.strip().lower() if isinstance(body_type, str) else None
+        if wanted not in BODY_TYPES:
+            raise CastError(f"Body type must be one of: {', '.join(BODY_TYPES)}")
+        fields["body_type"] = wanted
+    if sheet_pose is not None:
+        fields["sheet_pose"] = _clean(sheet_pose, "Sheet pose", POSE_MAX)
+    return fields
+
+
+def _body(conn, character_id: str) -> dict:
+    """The character's body type and sheet pose (a character without a row is humanoid, no own pose)."""
+    row = conn.execute("SELECT body_type, sheet_pose FROM cast_character_bodies WHERE character_id = ?",
+                       (character_id,)).fetchone()
+    if not row:
+        return {"body_type": DEFAULT_BODY_TYPE, "sheet_pose": ""}
+    return {"body_type": row["body_type"], "sheet_pose": row["sheet_pose"]}
+
+
+def _set_body(conn, character_id: str, fields: dict, actor: str | None) -> dict:
+    """Store the body fields that differ from the character's, inside the caller's transaction.
+    Returns what changed."""
+    current = _body(conn, character_id)
+    changes = {k: v for k, v in fields.items() if current[k] != v}
+    if changes:
+        body = {**current, **changes}
+        conn.execute("INSERT INTO cast_character_bodies (character_id, body_type, sheet_pose, updated_by, updated_at) "
+                     "VALUES (?, ?, ?, ?, ?) ON CONFLICT(character_id) DO UPDATE SET body_type = excluded.body_type, "
+                     "sheet_pose = excluded.sheet_pose, updated_by = excluded.updated_by, "
+                     "updated_at = excluded.updated_at",
+                     (character_id, body["body_type"], body["sheet_pose"], actor, _now()))
+    return changes
 
 
 def _insert_character(conn, library: tuple[str, str], fields: dict, actor: str | None,
@@ -389,18 +438,19 @@ def _insert_character(conn, library: tuple[str, str], fields: dict, actor: str |
                  (cid, kind, library_id, slug, fields["name"], fields["role"], fields["description"], actor, now, now))
     conn.execute("INSERT INTO cast_versions (character_id, version, label, outfit, created_by, created_at, "
                  "updated_at) VALUES (?, 1, 'Default', ?, ?, ?, ?)", (cid, fields["outfit"], actor, now, now))
+    body = _set_body(conn, cid, fields.get("body") or {}, actor)
     audit(conn, actor, "character_create", episode_id=episode_id, character_id=cid,
           series_id=library_id if kind == "series" else None,
-          details={"slug": slug, "name": fields["name"], "role": fields["role"]})
+          details={"slug": slug, "name": fields["name"], "role": fields["role"], **body})
     return cid
 
 
 def create_character(library: tuple[str, str], name: str, role: str = "", description: str = "",
                      slug: str | None = None, actor: str | None = None, *, episode_id: str | None = None,
-                     outfit: str = "") -> dict:
+                     outfit: str = "", body_type: str | None = None, sheet_pose: str | None = None) -> dict:
     """A new character (with version 1) in the library. An explicit slug that is taken is refused;
-    a slug made from the name gets a number when taken."""
-    fields = _character_fields(name, role, description, outfit, slug)
+    a slug made from the name gets a number when taken. Without a body type it is humanoid."""
+    fields = _character_fields(name, role, description, outfit, slug, body_type, sheet_pose)
     with connect() as conn, _tx(conn):
         cid = _insert_character(conn, library, fields, actor, episode_id)
     return get_character(cid)
@@ -408,12 +458,13 @@ def create_character(library: tuple[str, str], name: str, role: str = "", descri
 
 def create_character_with_upload(library: tuple[str, str], name: str, role: str, description: str, data: bytes, *,
                                  filename: str | None, attestation: dict, actor: str | None,
-                                 episode_id: str | None = None) -> dict:
+                                 episode_id: str | None = None, body_type: str | None = None,
+                                 sheet_pose: str | None = None) -> dict:
     """A new character whose version 1 starts from a reference picture, in one step. The picture gets
     the checks of add_upload first; the character, its version and the picture (primary) are then
     recorded in one transaction, so a refused picture leaves no character and a refused character
     no picture record."""
-    fields = _character_fields(name, role, description, "", None)
+    fields = _character_fields(name, role, description, "", None, body_type, sheet_pose)
     info = inspect_image(data)
     with connect() as conn:
         with _tx(conn):
@@ -435,8 +486,10 @@ def find_character(library: tuple[str, str], slug: str) -> dict | None:
 
 def update_character(character_id: str, *, name: str | None = None, role: str | None = None,
                      description: str | None = None, actor: str | None = None,
-                     episode_id: str | None = None) -> dict:
-    """Edit name, role or description. Locked versions keep the description they were locked with."""
+                     episode_id: str | None = None, body_type: str | None = None,
+                     sheet_pose: str | None = None) -> dict:
+    """Edit name, role, description, body type or sheet pose. Locked versions keep the description
+    they were locked with and their sheet pictures; the body type and pose frame sheets made later."""
     changes: dict[str, str] = {}
     if name is not None:
         changes["name"] = _clean(name, "Name", NAME_MAX, required=True)
@@ -444,14 +497,16 @@ def update_character(character_id: str, *, name: str | None = None, role: str | 
         changes["role"] = _clean(role, "Role", ROLE_MAX)
     if description is not None:
         changes["description"] = _clean(description, "Description", DESCRIPTION_MAX)
+    body = _body_fields(body_type, sheet_pose)
     with connect() as conn, _tx(conn):
         _character_row(conn, character_id)
-        if changes:
-            sets = ", ".join(f"{k} = ?" for k in changes)
-            conn.execute(f"UPDATE cast_characters SET {sets}, updated_at = ? WHERE character_id = ?",
+        body = _set_body(conn, character_id, body, actor)
+        if changes or body:
+            sets = "".join(f"{k} = ?, " for k in changes)
+            conn.execute(f"UPDATE cast_characters SET {sets}updated_at = ? WHERE character_id = ?",
                          (*changes.values(), _now(), character_id))
             audit(conn, actor, "character_update", episode_id=episode_id, character_id=character_id,
-                  details=changes)
+                  details={**changes, **body})
     return get_character(character_id)
 
 
@@ -476,6 +531,7 @@ def delete_character(character_id: str, actor: str | None = None, *, force: bool
             conn.execute("DELETE FROM cast_sheet_jobs WHERE character_id = ? AND status IN ('completed', 'failed')",
                          (character_id,))
             conn.execute("DELETE FROM character_voices WHERE character_id = ?", (character_id,))
+            conn.execute("DELETE FROM cast_character_bodies WHERE character_id = ?", (character_id,))
             conn.execute("DELETE FROM cast_characters WHERE character_id = ?", (character_id,))
             audit(conn, actor, "character_delete_forced" if locked else "character_delete", episode_id=episode_id,
                   character_id=character_id,
@@ -503,13 +559,16 @@ def get_character(character_id: str) -> dict:
                               (character_id,)).fetchall()
         jobs = conn.execute("SELECT * FROM cast_sheet_jobs WHERE character_id = ? ORDER BY created_at, job_id",
                             (character_id,)).fetchall()
-    out = dict(row)
+        revisions = _lock_revisions(conn, character_id)
+        body = _body(conn, character_id)
+    out = {**dict(row), **body}
     out["versions"] = []
     for v in versions:
         vd = dict(v)
         vd["locked"] = bool(vd["locked"])
         vd["images"] = [_image_view(dict(i)) for i in images if i["version"] == v["version"]]
         vd["sheet_jobs"] = [dict(j) for j in jobs if j["version"] == v["version"]]
+        vd["lock_revisions"] = [r for r in revisions if r.get("version") == v["version"]]
         vd["clause"] = version_clause(out, vd)
         out["versions"].append(vd)
     out["default_version"] = default_version_number(out["versions"])
@@ -1016,6 +1075,53 @@ def approve_version(character_id: str, version: int, actor: str | None = None, *
         audit(conn, actor, "version_lock", episode_id=episode_id, character_id=character_id,
               details={"version": version, "lock_hash": digest, "images": snapshot["images"]})
     return get_version(character_id, version)
+
+
+def revise_locked_version(character_id: str, version: int, *, description: str, outfit: str | None = None,
+                          reason: str, actor: str | None = None, episode_id: str | None = None) -> dict:
+    """Rewrite the words a locked version holds: its locked description becomes the character's name with
+    ``description`` and the outfit (``outfit``, else the version's own), and the lock hash is made again
+    over the same sheet pictures. An admin's decision (the API checks who asks), recorded with the
+    reason and both texts in the audit log. A lock that no longer verifies is refused, so a revision
+    never re-blesses a changed sheet. A run's planned shots keep the old words until its plans are
+    resynced (hfvg.plan_resync)."""
+    description = _clean(description, "Description", DESCRIPTION_MAX, required=True)
+    reason = _clean(reason, "Reason", REASON_MAX, required=True)
+    if outfit is not None:
+        outfit = _clean(outfit, "Outfit", OUTFIT_MAX)
+    problems = verify_lock(character_id, version)
+    if problems:
+        raise CastConflict("This lock cannot be revised: " + "; ".join(problems))
+    with connect() as conn, _tx(conn):
+        character = _character_row(conn, character_id)
+        row = _version_row(conn, character_id, version)
+        if not row["locked"]:
+            raise CastConflict(f"Version {version} is not locked; change it directly")
+        images = conn.execute("SELECT * FROM cast_images WHERE character_id = ? AND version = ? AND status = 'active' "
+                              "AND role IN (?, ?, ?, ?, ?, ?)", (character_id, version, *SHEET_ROLES)).fetchall()
+        if lock_hash(_lock_snapshot(character, row, images)) != row["lock_hash"]:
+            raise CastConflict(f"{character['name']} v{version}: the locked sheet no longer matches its lock hash")
+        new_outfit = row["outfit"] if outfit is None else outfit
+        clause = character_clause(character["name"], description, new_outfit)
+        if clause == row["locked_description"] and new_outfit == row["outfit"]:
+            raise CastError(f"Version {version} is already locked with these words")
+        conn.execute("UPDATE cast_versions SET outfit = ?, locked_description = ? WHERE character_id = ? AND version = ?",
+                     (new_outfit, clause, character_id, version))
+        digest = lock_hash(_lock_snapshot(character, _version_row(conn, character_id, version), images))
+        conn.execute("UPDATE cast_versions SET lock_hash = ?, updated_at = ? WHERE character_id = ? AND version = ?",
+                     (digest, _now(), character_id, version))
+        audit(conn, actor, LOCK_REVISE_ACTION, episode_id=episode_id, character_id=character_id,
+              details={"version": version, "reason": reason,
+                       "before": {"locked_description": row["locked_description"], "outfit": row["outfit"],
+                                  "lock_hash": row["lock_hash"]},
+                       "after": {"locked_description": clause, "outfit": new_outfit, "lock_hash": digest}})
+    return get_version(character_id, version)
+
+
+def _lock_revisions(conn, character_id: str) -> list[dict]:
+    rows = conn.execute("SELECT timestamp, actor, details FROM cast_audit_log WHERE character_id = ? AND action = ? "
+                        "ORDER BY id", (character_id, LOCK_REVISE_ACTION)).fetchall()
+    return [{"at": r["timestamp"], "by": r["actor"], **json.loads(r["details"])} for r in rows]
 
 
 def _role_label(role: str) -> str:

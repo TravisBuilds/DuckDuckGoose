@@ -27,8 +27,12 @@ before it starts: see [WORLDS.md](WORLDS.md).
 - **Library.** An episode in a series uses the series library, which every episode of the series shares.
   An episode without a series has its own library. Nothing else changes for episodes without a cast.
 - **Character.** `character_id` (internal), `slug` (the id shots use, unique per library, e.g. `mara`),
-  `name`, `role`, `description` (how they look, the same in every shot).
-- **Version.** A character's outfit: `version` (1, 2, ...), `label`, `outfit`, `derived_from_version`,
+  `name`, `role`, `description` (how they look, the same in every shot; up to 600 characters),
+  `body_type` (`humanoid`, `four_legged` or `other`; default `humanoid`) and `sheet_pose` (optional,
+  up to 200 characters). The last two only frame the character's sheet pictures (see
+  [Character sheets](#character-sheets)); they are not part of a lock or of any shot prompt.
+- **Version.** A character's outfit: `version` (1, 2, ...), `label`, `outfit` (up to 600 characters: it
+  goes into still prompts beside the description and never into a clip prompt), `derived_from_version`,
   `sheet_stage` (`none` → `options_ready` → `master_picked` → `turnaround_ready`), `locked`,
   `lock_hash`, `locked_description`. A shot without a version uses the character's default version:
   the first locked version (the main look; an outfit can only derive from a locked, lower version),
@@ -152,6 +156,64 @@ A version's sheet is made in steps, in the Cast panel:
    with `force` and a reason. Before the lock, any step can be rejected and made again. Each try gets
    new job ids, so a paid job id is never reused.
 
+**Body type and pose.** Every full-body picture of a sheet (options and turnaround views) is framed for
+the character's `body_type` (`hfvg/cast_sheets.py`, `SHEET_BODIES`), and so is the head sheet:
+
+| `body_type` | Full-body framing | Full-body aspect ratios (first the model takes) |
+|---|---|---|
+| `humanoid` (default) | head to feet, standing upright, arms slightly away from the body | 2:3, 3:4, 9:16, 1:1 |
+| `four_legged` | standing on all four legs, the whole body and all four legs in view | 3:2, 4:3, 16:9, 1:1 |
+| `other` | a neutral resting pose natural to the character, the whole character in view | 1:1, 4:3, 3:4, 3:2, 2:3 |
+
+A character's `sheet_pose` (for example "sitting upright, wings folded") replaces the body type's
+pose: `Full body, the whole figure centered in frame. Pose: <sheet_pose>.` Set them when adding or
+editing a character (`POST /cast`, `/cast/with-picture` and `/cast/{character_id}` take `body_type`
+and `sheet_pose`; the pose goes through the content-policy check of the other character text). A
+change frames the sheet pictures made from then on; pictures already made, and locked versions, keep
+what they were made with. A humanoid character without its own pose gets exactly the prompts and
+aspect ratios sheets had before body types.
+
+### Revising a locked look (admins)
+
+`POST /api/episodes/{id}/cast/{character_id}/versions/{version}/revise-lock` with `description`,
+`reason` and optionally `outfit` rewrites the words of a locked version. Its `locked_description`
+becomes `"<Name>: <description>; outfit: <outfit>."`, using the character's current name and, without
+`outfit`, the version's own outfit. `lock_hash` is then made again over the same sheet pictures. The
+revise form in the Cast panel shows for admins only (`can_revise_locks` in the cast view).
+
+- Only an admin may revise (**403** for members, with no `allow_members` on the route). Revising is
+  accepted while runs are open. Text is checked against the content policy like any character text.
+- A lock that no longer verifies (`verify_lock`: the rows or a sheet file changed) is refused with
+  **409**, so a revision never re-blesses a changed sheet. Repeating the current words is refused too.
+- The audit log records each revision (`version_lock_revise`, with the reason, the words, outfit and
+  lock hash before and after), and the version lists them in `lock_revisions`.
+- The pictures, the version number and the shots that use the version stay the same. New plans
+  (preflight, the Cast panel, a new run) use the new words. A run keeps the words it planned with
+  until its plans are resynced.
+
+**A running episode.** At G2, with no still retry or recompose pending, `POST
+/api/episodes/{id}/resync-plans` re-parses the package and takes the revised words: a shot plan
+whose `shot_meta` differs only in the words (`clause`) of locked cast entries is accepted. Any other
+`shot_meta` change, such as another character, version, name or count, is still refused with 409 and
+needs a new G1. Behind the workflow patch `g2-resync-cast-revision-v1` (one marker per update), so a
+resync refused before this change stays refused when its history replays. Then:
+
+- Stills made again (retry, redo) inject the revised words and lint against them. The redo and
+  recompose pre-checks do the same. A recompose after G2 uses the words in force even when the
+  still it starts from was made with the old ones.
+- Every still of those shots made with the old words and still waiting at G2 is flagged `old_lock`.
+  This includes stills approved or selected before the resync. G2 approval is refused until a person
+  decides on the kept still: approve or select it to keep it, or retry or reject it. A later revision
+  of the same look flags them again. `GET /shot-states` shows `old_lock` (`characters`, `decided`)
+  and `needs_decision`; the run panel says which look changed.
+- A kept old still keeps its own plan: selecting it lints it with the words it was made with, and
+  its clip is made from it as usual (clip prompts never carry the cast words).
+- The resync result lists `cast_revisions` (per shot: character, version, the words before and
+  after) and `old_lock_stills`, and the run's `resync_log` keeps both.
+
+Resync right after revising. Until then, a still made again uses the words the run planned with,
+while the identity check reads the lock as it is now.
+
 Sheets use the server's still model (`MODEL_PATH_STILL`, default `xai/grok-imagine-image-2.0`) and only
 when `model_caps.json` lists it as routed by the REST provider. `gpt_image_2` (`mcp_only_not_on_api`)
 and other models the provider refuses cannot be chosen. A model whose reference limit is too small
@@ -236,6 +298,9 @@ Existing settings that apply: `DATA_DIR`, `DATABASE_PATH`, `DRY_RUN`, `MODEL_PAT
   `cast_characters`, `cast_versions`, `cast_images`, `cast_sheet_jobs`, `cast_audit_log`) and records
   itself in `schema_migrations`. Existing tables and rows are not touched. It runs at API startup
   (`run_all_migrations`) and on the first cast store connection, and is safe to run again.
+- **Migration** `2026-11-cast-sheet-pose-v1` adds one table, `cast_character_bodies` (a character's
+  `body_type` and `sheet_pose`), the same way. A character without a row is `humanoid` with no pose of
+  its own, so existing characters and sheet requests made before it are unchanged.
 - **Rebuild** the `api`, `worker` and `web` images. The worker registers `CastSheetWorkflow` and the
   three sheet activities, so deploy the worker before or with the API, or a sheet request waits in
   the queue until a worker that knows it starts.

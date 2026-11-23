@@ -3,17 +3,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { API_URL, ApiError, apiFetch, postJson } from '@/lib/studio-api';
 import {
+  BODY_TYPES,
   PICTURE_ACCEPT,
   PICTURE_LABELS,
   SHEET_STEP_TEXT,
   addForm,
   addWithPhotoProblem,
   anyActiveJobs,
+  bodyFields,
+  bodyNote,
   castPicks,
   defaultOptionCount,
   emptyRights,
   estimateText,
   estimateWhat,
+  lockedDescription,
   optionCounts,
   pictureHint,
   pictureProblem,
@@ -66,7 +70,7 @@ const darkBtn = `${btn} pf-btn-primary`;
 const UNREACHABLE = 'The studio could not be reached. Check your connection and try again.';
 
 /**
- * Where an action's result shows: a character slug (optionally ":upload", ":sheet" or ":outfit"), "add", "shots" or "series".
+ * Where an action's result shows: a character slug (optionally ":upload", ":sheet", ":outfit" or ":revise"), "add", "shots" or "series".
  * `refused` may take a refusal's words and show them itself (true), instead of the result line.
  */
 type Act = <T>(fn: () => Promise<T>, done?: string, where?: string, refused?: (message: string) => boolean) => Promise<T | null>;
@@ -456,7 +460,7 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
       <div className="grid sm:grid-cols-2 gap-2">
         <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} placeholder="Name, e.g. Winter coat"
           aria-label="Outfit name" className={field} />
-        <input value={outfit} onChange={(e) => setOutfit(e.target.value)} maxLength={300}
+        <input value={outfit} onChange={(e) => setOutfit(e.target.value)} maxLength={600}
           placeholder="The outfit, e.g. a long green wool coat and red boots" aria-label="The outfit" className={field} />
       </div>
       <button type="button" onClick={create} disabled={busy || !outfit.trim()} className={`${plainBtn} mt-2`}
@@ -468,6 +472,90 @@ function NewOutfit({ apiBase, character, version, busy, act, onCreated, note }: 
   );
 }
 
+/**
+ * An admin's rewrite of a locked look's words, also during a run (api/cast_routes.py revise-lock). The
+ * sheet pictures stay. A run uses the new words once its plans are resynced at G2, where the stills
+ * made with the old words wait for a person.
+ */
+function ReviseLock({ apiBase, character, version, busy, act, note }: {
+  apiBase: string; character: CastCharacter; version: CastVersion; busy: boolean; act: Act; note: CastNote | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const [words, setWords] = useState({ description: '', outfit: '', reason: '' });
+  const revisions = version.lock_revisions ?? [];
+  const last = revisions[revisions.length - 1];
+  const start = () => {
+    setWords({ description: lockedDescription(character, version), outfit: version.outfit, reason: '' });
+    setOpen(true);
+  };
+  const revise = async () => {
+    const done = await act(
+      () => postJson(`${apiBase}/cast/${character.character_id}/versions/${version.version}/revise-lock`, {
+        description: words.description.trim(), outfit: words.outfit.trim(), reason: words.reason.trim(),
+      }),
+      'Locked words changed. A running episode uses them after you resync its plans at G2, where stills made '
+        + 'with the old words wait for you.',
+      `${character.slug}:revise`,
+    );
+    if (done !== null) setOpen(false);
+  };
+  return (
+    <div className="mt-3" data-testid={`cast-revise-lock-${character.slug}`}>
+      {last && (
+        <p className="text-[12px] text-ink-soft">
+          Locked words changed {revisions.length === 1 ? 'once' : `${revisions.length} times`}, last
+          by {last.by ?? 'an admin'} on {last.at.slice(0, 10)}: {last.reason}
+        </p>
+      )}
+      {open ? (
+        <div className="mt-2 space-y-2 rounded-lg bg-gray-50 p-3">
+          <p className="text-sm font-semibold">Change the locked words (admins only)</p>
+          <p className="text-xs text-gray-600">
+            The sheet pictures stay the same. Every shot with this look gets the new words.
+          </p>
+          <textarea value={words.description} onChange={(e) => setWords({ ...words, description: e.target.value })}
+            maxLength={600} rows={3} aria-label="What they look like" className={field} />
+          <input value={words.outfit} onChange={(e) => setWords({ ...words, outfit: e.target.value })} maxLength={600}
+            placeholder="The outfit" aria-label="The outfit" className={field} />
+          <input value={words.reason} onChange={(e) => setWords({ ...words, reason: e.target.value })} maxLength={300}
+            placeholder="Why, e.g. approved by the director" aria-label="Why the words change" className={field} />
+          <div className="flex gap-2">
+            <button type="button" onClick={revise} disabled={busy || !words.description.trim() || !words.reason.trim()}
+              className={darkBtn}>
+              Change the locked words
+            </button>
+            <button type="button" onClick={() => setOpen(false)} disabled={busy} className={plainBtn}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={start} disabled={busy} className={`${plainBtn} mt-1`}>
+          Change the locked words
+        </button>
+      )}
+      <CastMessage note={note} />
+    </div>
+  );
+}
+
+function cardText(character: CastCharacter) {
+  return {
+    name: character.name, role: character.role, description: character.description,
+    body_type: character.body_type || 'humanoid', sheet_pose: character.sheet_pose ?? '',
+  };
+}
+
+/** The kind of body a character has: its character sheet is framed for it. */
+function BodyChoice({ value, onChange, testId, className = '' }: {
+  value: string; onChange: (value: string) => void; testId: string; className?: string;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Body" data-testid={testId}
+      className={`${field} ${className}`}>
+      {BODY_TYPES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+    </select>
+  );
+}
+
 function CharacterCard({ apiBase, view, character, colour, index, busy, act, note, universe, badge, extra }: {
   apiBase: string; view: CastView; character: CastCharacter; colour: CastColour; index: number; busy: boolean; act: Act;
   note: CastNote | null; universe: UniverseCast | null; badge?: CastPanelProps['badge']; extra?: CastPanelProps['extra'];
@@ -476,7 +564,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
   const [versionNo, setVersionNo] = useState(character.default_version);
   const version = character.versions.find((v) => v.version === versionNo) ?? character.versions[0];
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState({ name: character.name, role: character.role, description: character.description });
+  const [text, setText] = useState(cardText(character));
   const pictures = versionPictures(version);
   const base = `${apiBase}/cast/${character.character_id}`;
   const anyLocked = character.versions.some((v) => v.locked);
@@ -492,9 +580,11 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
   if (!version) return null;
   const uploadShown = canEdit && !version.locked && pictures.uploads.length < view.limits.max_uploads_per_version;
   const outfitShown = canEdit && version.locked && !universe;
+  const reviseShown = Boolean(view.can_revise_locks) && version.locked && !universe;
   // A result shows by the part of the card it came from while that part is on screen, else at the card's foot.
   const spot = note?.where.startsWith(`${here}:`) ? note.where.slice(here.length + 1) : null;
-  const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown);
+  const inPlace = (spot === 'upload' && uploadShown) || spot === 'sheet' || (spot === 'outfit' && outfitShown)
+    || (spot === 'revise' && reviseShown);
   const noteFor = (part: string) => (inPlace && spot === part ? note : null);
   const cardNote = note && (note.where === here || (spot !== null && !inPlace)) ? note : null;
   const face = pictures.uploads.find((image) => image.is_primary) ?? pictures.uploads[0] ?? pictures.sheet[0] ?? null;
@@ -529,9 +619,15 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
             aria-label="Part they play" placeholder="Part they play, e.g. the lead" className={field} />
           <textarea value={text.description} onChange={(e) => setText({ ...text, description: e.target.value })}
             maxLength={600} rows={3} aria-label="What they look like" className={field} />
-          {anyLocked && (
-            <p className="text-[12px] text-ink-soft">Locked looks keep the description they were locked with.</p>
-          )}
+          <BodyChoice value={text.body_type} onChange={(body_type) => setText({ ...text, body_type })}
+            testId={`cast-body-${here}`} />
+          <input value={text.sheet_pose} onChange={(e) => setText({ ...text, sheet_pose: e.target.value })}
+            maxLength={200} aria-label="Pose in the character sheet" className={field} data-testid={`cast-pose-${here}`}
+            placeholder="Pose in the character sheet (optional), e.g. sitting with wings folded" />
+          <p className="text-[12px] text-ink-soft">
+            The body and pose shape character sheets made from now on.
+            {anyLocked && ' Locked looks keep the description and pictures they were locked with.'}
+          </p>
           <div className="flex gap-2">
             <button type="button" onClick={save} disabled={busy || !text.name.trim()} className={darkBtn}>Save</button>
             <button type="button" onClick={() => setEditing(false)} disabled={busy} className={plainBtn}>Cancel</button>
@@ -543,6 +639,9 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
             <span className="text-ink-soft">No description yet. Say how they look so every shot gets them right.</span>
           )}
         </p>
+      )}
+      {!editing && bodyNote(character) && (
+        <p className="mt-1 text-[12px] text-ink-soft" data-testid={`cast-body-note-${here}`}>{bodyNote(character)}</p>
       )}
       {version.locked && (
         <p className="mt-1 text-[12px] text-ink-soft">Used in every shot with them: &ldquo;{version.clause}&rdquo;</p>
@@ -603,13 +702,18 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
           onCreated={setVersionNo} note={noteFor('outfit')} />
       )}
 
+      {reviseShown && (
+        <ReviseLock key={`${character.character_id}-${version.version}-revise`} apiBase={apiBase} character={character}
+          version={version} busy={busy} act={act} note={noteFor('revise')} />
+      )}
+
       {canEdit && !editing && (
         <div className="mt-4 flex flex-wrap gap-2">
           <button type="button" onClick={() => {
-            setText({ name: character.name, role: character.role, description: character.description });
+            setText(cardText(character));
             setEditing(true);
           }} disabled={busy} className={plainBtn}>
-            Edit name and description
+            Edit name, description and body
           </button>
           <ConfirmButton disabled={busy} className={`${plainBtn} !text-coral-ink`} confirmLabel="Remove"
             question={`Remove ${character.name} and all their pictures from ${universe ? 'this Universe' : 'the cast'}?`}
@@ -631,7 +735,7 @@ function CharacterCard({ apiBase, view, character, colour, index, busy, act, not
 function AddCharacter({ apiBase, view, busy, act, note }: {
   apiBase: string; view: CastView; busy: boolean; act: Act; note: CastNote | null;
 }) {
-  const empty = { name: '', role: '', description: '' };
+  const empty = { name: '', role: '', description: '', body_type: 'humanoid' };
   const [form, setForm] = useState(empty);
   const [file, setFile] = useState<File | null>(null);
   const [rights, setRights] = useState<RightsAnswers>(emptyRights());
@@ -660,7 +764,7 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
   };
   const addWithoutPhoto = async () => {
     added(await act(() => postJson(`${apiBase}/cast`, {
-      name, role: form.role.trim(), description: form.description.trim(),
+      name, role: form.role.trim(), description: form.description.trim(), ...Object.fromEntries(bodyFields(form)),
     }), `${name} joined the cast.`, 'add'));
   };
   return (
@@ -693,6 +797,8 @@ function AddCharacter({ apiBase, view, busy, act, note }: {
         maxLength={600} rows={3} aria-label="What they look like" data-testid="cast-add-description"
         placeholder="What they look like, the same in every shot: age, build, face, hair, colours, clothing"
         className={`${field} mt-2`} />
+      <BodyChoice value={form.body_type} onChange={(body_type) => setForm({ ...form, body_type })}
+        testId="cast-add-body" className="mt-2" />
       {file && (
         <RightsQuestions rights={rights} onChange={setRights} group="rights-add" testId={(what) => `cast-add-${what}`} />
       )}

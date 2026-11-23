@@ -64,6 +64,24 @@ test('a scene picture chip puts the decision first, then the picture state', () 
   assert.equal(stillChip({ stillStatus: 'failed', held: true }).label, 'Held for an admin to check');
 });
 
+test('a picture the picture check failed reads as flagged until a decision is made on it', () => {
+  assert.deepEqual(stillChip({ stillStatus: 'done', flagged: true }), { label: 'Flagged by the picture check', tone: 'warn' });
+  // an approval made before the check failed it is not a decision on the flagged picture
+  assert.equal(stillChip({ stillStatus: 'done', decision: 'approved', flagged: true }).label, 'Flagged by the picture check');
+  assert.equal(stillChip({ stillStatus: 'done', decision: 'approved', flagged: false }).label, 'Approved');
+  assert.equal(stillChip({ stillStatus: 'done', flagged: true, retrying: true }).label, 'Being made again');
+  assert.equal(shotStatusLabel('qc_failed'), 'Flagged by the picture check');
+});
+
+test('a picture made before a locked look in it was changed waits for a decision, even one approved before', () => {
+  assert.deepEqual(stillChip({ stillStatus: 'done', oldLook: true }), { label: 'Made before the look changed', tone: 'warn' });
+  assert.equal(stillChip({ stillStatus: 'done', decision: 'approved', oldLook: true }).label, 'Made before the look changed');
+  assert.equal(stillChip({ stillStatus: 'done', decision: 'approved', oldLook: false }).label, 'Approved');
+  assert.equal(stillChip({ stillStatus: 'done', oldLook: true, allApproved: true }).label, 'Made before the look changed');
+  assert.equal(stillChip({ stillStatus: 'done', oldLook: true, flagged: true }).label, 'Flagged by the picture check');
+  assert.equal(stillChip({ stillStatus: 'done', oldLook: true, retrying: true }).label, 'Being made again');
+});
+
 test('once every scene picture is approved, a picture without its own decision is not still "to review"', () => {
   assert.deepEqual(stillChip({ stillStatus: 'done', allApproved: true }), { label: 'Approved', tone: 'ok' });
   assert.deepEqual(stillChip({ stillStatus: 'done', decision: 'rejected', allApproved: true }), { label: 'Redo requested', tone: 'warn' });

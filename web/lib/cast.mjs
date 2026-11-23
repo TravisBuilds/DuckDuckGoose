@@ -142,8 +142,38 @@ export function withPictureFields(fields, answers) {
     ['name', String(fields?.name ?? '').trim()],
     ['role', String(fields?.role ?? '').trim()],
     ['description', String(fields?.description ?? '').trim()],
+    ...bodyFields(fields),
     ...rightsFields(answers),
   ];
+}
+
+/**
+ * The kinds of body a character can have (the API's cast_store.BODY_TYPES): the character sheet is
+ * framed for it. A character without one is humanoid.
+ */
+export const BODY_TYPES = [
+  { value: 'humanoid', label: 'Two legs, like a person' },
+  { value: 'four_legged', label: 'Four legs' },
+  { value: 'other', label: 'Another kind of body' },
+];
+
+/** A new character's body type and sheet pose as form fields; none for a humanoid without its own pose. */
+export function bodyFields(fields) {
+  const type = String(fields?.body_type ?? '').trim();
+  const pose = String(fields?.sheet_pose ?? '').trim();
+  return [
+    ...(type && type !== 'humanoid' ? [['body_type', type]] : []),
+    ...(pose ? [['sheet_pose', pose]] : []),
+  ];
+}
+
+/** What a character card says about how its sheet is posed; null for a humanoid without its own pose. */
+export function bodyNote(character) {
+  const type = character?.body_type || 'humanoid';
+  const pose = String(character?.sheet_pose ?? '').trim();
+  if (type === 'humanoid' && !pose) return null;
+  const body = `Body: ${(BODY_TYPES.find(b => b.value === type) ?? BODY_TYPES[2]).label.toLowerCase()}.`;
+  return pose ? `${body} Pose in the character sheet: ${pose}` : body;
 }
 
 /** A version's pictures: the creator's uploads (main one first), the look options, and the sheet. */
@@ -236,6 +266,21 @@ export function estimateWhat(estimate) {
 /** The sheet still needs placeholder approval (dry-run stand-ins) to be locked. */
 export function sheetHasPlaceholders(version) {
   return versionPictures(version).sheet.some(i => i.placeholder);
+}
+
+/**
+ * The description a locked look was locked with, read back from its words ("<Name>: <description>;
+ * outfit: <outfit>.", hfvg/cast_prompt.py character_clause); the character's description when the
+ * words hold no description under its current name.
+ */
+export function lockedDescription(character, version) {
+  const head = `${character.name}: `;
+  let text = String(version.clause ?? '');
+  if (!text.startsWith(head)) return character.description;
+  text = text.slice(head.length).replace(/\.$/, '');
+  const outfit = String(version.outfit ?? '').replace(/\.$/, '');
+  const tail = `; outfit: ${outfit}`;
+  return outfit && text.endsWith(tail) ? text.slice(0, -tail.length) : text;
 }
 
 // ---------------------------------------------------------------------------------- who is in each shot

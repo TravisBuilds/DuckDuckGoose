@@ -50,6 +50,17 @@ export interface CastVersion {
   clause: string;
   images: CastImage[];
   sheet_jobs: SheetJob[];
+  /** An admin's rewrites of the locked words, oldest first (api/cast_routes.py revise-lock). */
+  lock_revisions?: LockRevision[];
+}
+
+export interface LockRevision {
+  at: string;
+  by: string | null;
+  version: number;
+  reason: string;
+  before: { locked_description: string; outfit: string; lock_hash: string };
+  after: { locked_description: string; outfit: string; lock_hash: string };
 }
 
 export interface CastCharacter {
@@ -58,6 +69,8 @@ export interface CastCharacter {
   name: string;
   role: string;
   description: string;
+  body_type?: string; // humanoid | four_legged | other (BODY_TYPES); humanoid when missing
+  sheet_pose?: string; // the character's own pose in its sheet pictures ('' = its body type's)
   library_kind: string;
   library_id: string;
   default_version: number;
@@ -135,6 +148,8 @@ export interface CastView {
     max_cast_per_shot: number;
   };
   can_edit: boolean;
+  /** Admins may rewrite the words of a locked look, also during a run. */
+  can_revise_locks?: boolean;
 }
 
 export interface RightsAnswers {
@@ -214,9 +229,17 @@ export declare function addWithPhotoProblem(
   maxBytes?: number | null,
 ): string | null;
 export declare function withPictureFields(
-  fields: { name?: string; role?: string; description?: string } | null | undefined,
+  fields: { name?: string; role?: string; description?: string; body_type?: string; sheet_pose?: string }
+    | null | undefined,
   answers: RightsAnswers,
 ): [string, string][];
+export declare const BODY_TYPES: { value: string; label: string }[];
+export declare function bodyFields(
+  fields: { body_type?: string; sheet_pose?: string } | null | undefined,
+): [string, string][];
+export declare function bodyNote(
+  character: Pick<CastCharacter, 'body_type' | 'sheet_pose'> | null | undefined,
+): string | null;
 export declare function versionPictures(version: CastVersion | null | undefined): {
   uploads: CastImage[];
   options: CastImage[];
@@ -233,6 +256,10 @@ export declare function defaultOptionCount(fromPicture: boolean): number;
 export declare function estimateText(estimate: Pick<SheetEstimate, 'count' | 'dry_run' | 'total_usd_micros'>): string;
 export declare function estimateWhat(estimate: Pick<SheetEstimate, 'count'>): string;
 export declare function sheetHasPlaceholders(version: CastVersion | null | undefined): boolean;
+export declare function lockedDescription(
+  character: Pick<CastCharacter, 'name' | 'description'>,
+  version: Pick<CastVersion, 'clause' | 'outfit'>,
+): string;
 
 export declare function castPicks(cast: (string | { character: string; version?: number | null })[] | null | undefined): CastPick[];
 export declare function castEntries(picks: CastPick[]): (string | { character: string; version: number })[];
