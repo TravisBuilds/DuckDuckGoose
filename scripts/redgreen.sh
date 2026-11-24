@@ -5293,7 +5293,7 @@ test_mutation 774 "qc judges: assembly QC names the shots out of judge budget" \
 test_mutation 775 "qc judges: an auto line is sized from the shot plan" \
     "hfvg/qc/judges.py" \
     "tests/test_qc_any_show.py::test_an_auto_line_is_sized_from_the_shots_and_their_locked_characters" \
-    sed -i 's/^        return await asyncio\.to_thread(episode_line_cap_usd_micros, episode_id, model)$/        return default  # MUTATED/'
+    sed -i 's/^        return sized$/        return default  # MUTATED/'
 
 # 776: one take of a shot with N locked characters can ask 8 + 4N judge calls
 test_mutation 776 "judge budget: every locked character is judged on every identity frame" \

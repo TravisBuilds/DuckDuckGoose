@@ -254,8 +254,12 @@ upper bound; never less than $0.50. For shots with `qc_fail_if` conditions and t
 | 20 shots, 3 locked characters each | $3.09 ($2.47) |
 | 30 shots, 4 locked characters each | $5.47 ($4.38) |
 
-A shot plan that cannot be read or planned gets the $0.50 cap, with a warning in the log. An
-existing line keeps its cap: `auto`, like a new number, applies to lines created after the change.
+A shot plan that cannot be read or planned gets the $0.50 cap, with a warning in the log. A fixed
+cap stays as set, but when the episode's first judge call creates its line with a fixed cap smaller
+than the `auto` size, the log warns, naming both amounts. `auto` is not the default: on a show
+bigger than the $0.50 line holds, it would raise what the judges may spend without anyone changing
+a setting. An existing line keeps its cap: `auto`, like a new number, applies to lines created
+after the change.
 A cap above $0.50, fixed or `auto`, has a trade-off: the default line caps then add up to more than
 the $48 stop, which the ledger's design otherwise avoids. The episode stop still bounds the total,
 so in an episode whose lines run close to their caps, judge spend and generation compete for the

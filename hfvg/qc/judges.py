@@ -513,23 +513,32 @@ async def _stop_detail(ledger: Any, episode_id: str, estimate: int) -> str:
 
 async def _new_line_cap(ledger: Any, episode_id: str, setting: int | str, model: str) -> int:
     """The cap ``ensure_line`` gives the episode's line when it creates it (an existing line keeps
-    its own). ``auto``: sized from the episode's shot plan, or the default cap when it cannot be."""
-    if setting != LINE_CAP_AUTO:
-        return int(setting)
-    default = usd_to_micros(DEFAULT_LINE_CAP_USD)
+    its own). ``auto``: sized from the episode's shot plan, or the default cap when it cannot be. A
+    fixed cap is kept as set, with a warning when it is smaller than that size."""
+    fixed = None if setting == LINE_CAP_AUTO else int(setting)
+    default = usd_to_micros(DEFAULT_LINE_CAP_USD) if fixed is None else fixed
     try:
         await ledger.get_line_status(episode_id, QC_LINE)
         return default
     except Exception:  # noqa: BLE001 - no line yet (or no ledger yet): ensure_line creates it
         pass
-    from hfvg.qc.judge_budget import episode_line_cap_usd_micros
+    from hfvg.qc.judge_budget import TAKES_PER_SHOT, episode_line_cap_usd_micros
 
     try:
-        return await asyncio.to_thread(episode_line_cap_usd_micros, episode_id, model)
+        sized = await asyncio.to_thread(episode_line_cap_usd_micros, episode_id, model)
     except Exception as e:  # noqa: BLE001 - an unsized line gets the default cap, never none
-        logger.warning(f"QC judge line of {episode_id} not sized from its shot plan ({str(e)[:200]}): "
-                       f"default cap ${DEFAULT_LINE_CAP_USD}")
+        if fixed is None:
+            logger.warning(f"QC judge line of {episode_id} not sized from its shot plan ({str(e)[:200]}): "
+                           f"default cap ${DEFAULT_LINE_CAP_USD}")
         return default
+    if fixed is None:
+        return sized
+    if sized > fixed:
+        logger.warning(f"QC judge line of {episode_id}: its ${micros_to_usd_str(fixed)} cap is below the "
+                       f"${micros_to_usd_str(-(-sized // 10_000) * 10_000)} its shot plan needs for "
+                       f"{TAKES_PER_SHOT} takes of every shot; checks past the line's stop go to a person "
+                       f"({LINE_CAP_ENV}={LINE_CAP_AUTO} sizes the line from the plan)")
+    return fixed
 
 
 class JudgeService:

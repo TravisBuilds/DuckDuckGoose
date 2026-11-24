@@ -10,13 +10,14 @@ entry here. FakeJudgeClient only: no network, no spend."""
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 import pytest
 
 from hfvg.budget import compute_stop_usd_micros, get_budget_settings
 from hfvg.paths import episode_dir
-from hfvg.pricing import usd_to_micros
+from hfvg.pricing import micros_to_usd_str, usd_to_micros
 from hfvg.qc import identity, still_review, vision_constraints, vision_counter
 from hfvg.qc.g2_headcount import check_still_headcount
 from hfvg.qc.headcount import FakeCastCounter, check_headcount, shot_roster
@@ -409,3 +410,40 @@ async def test_an_auto_line_without_a_shot_plan_gets_the_default_cap_and_keeps_i
     _plans(*[_shot(f"N{i:02d}", pip) for i in range(1, 60)])
     await service.ask(call("sha-2"))
     assert qc_line(db, EP)["cap"] == usd_to_micros(DEFAULT_LINE_CAP_USD)  # an existing line keeps its cap
+
+
+def _line_warnings(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.name == "hfvg.qc.judges" and "cap is below" in r.getMessage()]
+
+
+async def test_a_fixed_line_smaller_than_the_shot_plan_needs_is_kept_and_logged(db, monkeypatch, caplog):
+    ana, ben, pip = _night_shift()
+    mara = _mara()
+    _plans(*[_shot(f"N{i:02d}", ana, ben, pip, mara, qc_fail_if=["a fifth figure walks in"]) for i in range(1, 13)])
+    sized = episode_line_cap_usd_micros(EP)
+    monkeypatch.delenv("HFVG_QC_LINE_CAP_USD", raising=False)
+
+    def call(media):
+        return JudgeCall(kind="test_judge", episode_id=EP, subject="N01 still_v1.png", system="Answer with JSON.",
+                         text="Is it blue?", images=[b"image"], key_parts={"media": media})
+
+    service = JudgeService(FakeJudgeClient({"ok": True}, {"ok": True}))
+    with caplog.at_level(logging.WARNING, logger="hfvg.qc.judges"):
+        await service.ask(call("sha-1"))
+        await service.ask(call("sha-2"))
+    assert qc_line(db, EP)["cap"] == usd_to_micros(DEFAULT_LINE_CAP_USD)  # kept: no spend without a config change
+    needs = micros_to_usd_str(-(-sized // 10_000) * 10_000)
+    assert _line_warnings(caplog) == [  # once, when the line is created
+        f"QC judge line of {EP}: its $0.50 cap is below the ${needs} its shot plan needs for 2 takes of every "
+        "shot; checks past the line's stop go to a person (HFVG_QC_LINE_CAP_USD=auto sizes the line from the plan)"]
+
+
+async def test_a_fixed_line_the_shot_plan_fits_in_logs_nothing(db, monkeypatch, caplog):
+    _plans(_shot("N01", locked_character(EP)))
+    monkeypatch.delenv("HFVG_QC_LINE_CAP_USD", raising=False)
+    call = JudgeCall(kind="test_judge", episode_id=EP, subject="N01 still_v1.png", system="Answer with JSON.",
+                     text="Is it blue?", images=[b"image"], key_parts={"media": "sha-1"})
+    with caplog.at_level(logging.WARNING, logger="hfvg.qc.judges"):
+        assert await JudgeService(FakeJudgeClient({"ok": True})).ask(call) == {"ok": True}
+    assert qc_line(db, EP)["cap"] == usd_to_micros(DEFAULT_LINE_CAP_USD)
+    assert _line_warnings(caplog) == []
