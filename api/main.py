@@ -4133,10 +4133,30 @@ async def get_g2_headcount(
     return await _g2_headcount(episode_id, temporal_client.get_workflow_handle(episode_workflow_id(episode_id)))
 
 
+async def _still_shot_meta(episode_id: str, shot_id: str, version: int) -> dict | None:
+    """The shot_meta a still version was planned with: the G2 still version's, else the shot's latest
+    recompose still's when it is that version. Fails closed (503 / 409) when it cannot be read."""
+    if not temporal_client:
+        raise HTTPException(status_code=503, detail="Temporal client not initialized")
+    handle = temporal_client.get_workflow_handle(episode_workflow_id(episode_id))
+    try:
+        plan = await handle.query("still_version_plan", args=[shot_id, version])
+        if not plan:
+            recompose = ((await handle.query("recompose_still_plans")) or {}).get(shot_id)
+            plan = recompose if isinstance(recompose, dict) and recompose.get("version") == version else None
+    except Exception as e:
+        raise HTTPException(status_code=409,
+                            detail=f"the figures of {shot_id} v{version} cannot be read (fails closed): {e}")
+    if not plan:
+        raise HTTPException(status_code=409, detail=f"no plan for still v{version} of {shot_id}: "
+                            "its figures cannot be checked")
+    return plan.get("shot_meta")
+
+
 class HeadcountRequest(BaseModel):
     """A reviewer's count of one still: per declared figure (the ids of ``expected.figures`` in
-    GET /g2-headcount) with the undeclared figures, the shape of the counter's answer. The cast /
-    duck / other counts of the first series' form are still accepted."""
+    GET /g2-headcount, every one of them and no other) with the undeclared figures, the shape of the
+    counter's answer. The cast / duck / other counts of the first series' form are still accepted."""
     version: int = Field(..., ge=1)
     figures: dict[str, int] | None = Field(None, description="declared figure id -> how many are in frame")
     unexpected: int = Field(0, ge=0, description="figures nobody declared that stand out as subjects of the shot")
@@ -4170,8 +4190,9 @@ async def record_still_headcount(
     studio_admin_token: str | None = Cookie(None),
 ):
     """GAP-27: record a reviewer's count of the figures in one still version (the G2 and recompose
-    headcount use it before any counter). The still file must be on disk. Audited."""
-    from hfvg.qc.g2_headcount import record_headcount
+    headcount use it before any counter). The still file must be on disk, and a per-figure count must
+    name exactly the figures that still's plan declares. Audited."""
+    from hfvg.qc.g2_headcount import check_declared, headcount_row, record_headcount
     from hfvg.still_selection import outputs_dir, still_file
     await verify_auth_unified(authorization, studio_admin_token, require_admin=False)
     validate_episode_id(episode_id)
@@ -4179,15 +4200,19 @@ async def record_still_headcount(
         raise HTTPException(status_code=422, detail="invalid shot id")
     try:
         counts = request.counts()
+        row = headcount_row(counts)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     if still_file(outputs_dir(episode_id, shot_id, paths.data_dir()), request.version) is None:
         raise HTTPException(status_code=409, detail=f"still v{request.version} of {shot_id} not on disk")
-    try:
-        row = record_headcount(episode_id, shot_id, request.version, counts, by="admin",
-                               note=request.note.strip(), episodes_dir=paths.episodes_dir())
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    if "figures" in row:
+        shot_meta = await _still_shot_meta(episode_id, shot_id, request.version)
+        try:
+            check_declared(row["figures"], shot_meta, f"{shot_id} v{request.version}")
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+    row = record_headcount(episode_id, shot_id, request.version, counts, by="admin",
+                           note=request.note.strip(), episodes_dir=paths.episodes_dir())
     if "figures" in row:
         counted = " ".join([f"{fid}={n}" for fid, n in row["figures"].items()]
                            + [f"unexpected={row['unexpected']}", f"background={row['background']}"])

@@ -302,3 +302,73 @@ async def test_api_takes_a_count_per_cast_id_and_refuses_a_mixed_or_incomplete_f
     with sqlite3.connect(tmp_path / "studio.db") as c:
         details = [d for (a, d) in c.execute("SELECT action, details FROM audit_log") if a == "g2_headcount"]
     assert any("V12 v2: ana=1 ben=1 pip=1 unexpected=1 background=0" in str(d) for d in details), details
+
+
+class _RecomposeHandle(_Handle):
+    """A shot whose still was made by a recompose: not a G2 still version."""
+
+    def __init__(self, recompose):
+        super().__init__({}, {})
+        self.recompose = recompose
+
+    async def query(self, name, args=None):
+        if name == "recompose_still_plans":
+            return self.recompose
+        return await super().query(name, args)
+
+
+@pytest.mark.asyncio
+async def test_api_refuses_a_figure_id_the_still_does_not_declare_when_it_is_recorded(api, tmp_path):
+    """A mistyped id used to be stored and read at G2 as an unexpected figure (a FAIL blocking
+    approval); now it is refused when recorded, and so is a count that leaves a declared figure out.
+    A count stored before the plan changed is still read at G2 (the test above)."""
+    api_main, client = api
+    eps = tmp_path / "eps"
+    _still(tmp_path, "V12", 2)
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": NIGHT_SHIFT}}))
+    url = "/api/episodes/ep42/shots/V12/headcount"
+    for figures, detail in [
+        ({"ana": 1, "ben": 1, "pipp": 1}, "figure id 'pipp' is not one V12 v2 declares (ana, ben, pip)"),
+        ({"ana": 1, "ben": 1}, "count every figure V12 v2 declares: no count for pip"),
+    ]:
+        r = await client.post(url, json={"version": 2, "figures": figures})
+        assert r.status_code == 422 and r.json()["detail"] == detail, (figures, r.text)
+    assert load_headcounts("ep42", eps) == {}
+
+    # the first series' plans: its main characters counted together and its host, by their figure ids
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": DUCK_FAMILY}}))
+    r = await client.post(url, json={"version": 2, "figures": {"_cast": 3}})
+    assert r.status_code == 422 and r.json()["detail"] == "count every figure V12 v2 declares: no count for _duck_host"
+    r = await client.post(url, json={"version": 2, "figures": {"_cast": 3, "_duck_host": 1}})
+    assert r.status_code == 200, r.text
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": {}}}))
+    r = await client.post(url, json={"version": 2, "figures": {}, "unexpected": 1})
+    assert r.status_code == 422 and r.json()["detail"] == "V12 v2 declares no figures to count"
+
+    # a recompose still is checked against the cast its recompose declared
+    _still(tmp_path, "V12", 4)
+    _wire(api_main, _RecomposeHandle({"V12": {"version": 4, "shot_meta": NIGHT_SHIFT}}))
+    r = await client.post(url, json={"version": 4, "figures": {"ana": 1, "bem": 1, "pip": 1}})
+    assert r.status_code == 422 and "'bem' is not one V12 v4 declares" in r.json()["detail"], r.text
+    r = await client.post(url, json={"version": 4, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 200, r.text
+    assert load_headcounts("ep42", eps)["V12"]["4"]["figures"] == {"ana": 1, "ben": 1, "pip": 1}
+
+    # a still whose plan cannot be read is refused (fails closed), as is one with no plan at all
+    _wire(api_main, _RecomposeHandle({"V12": {"version": 3, "shot_meta": NIGHT_SHIFT}}))
+    r = await client.post(url, json={"version": 4, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 409 and "no plan for still v4 of V12" in r.json()["detail"], r.text
+
+    class Broken(_Handle):
+        async def query(self, name, args=None):
+            raise RuntimeError("query failed")
+    _wire(api_main, Broken({}, {}))
+    r = await client.post(url, json={"version": 2, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 409 and "fails closed" in r.json()["detail"], r.text
+
+    # the first series' form needs no plan: it is recorded without the workflow
+    api_main.temporal_client = None
+    r = await client.post(url, json={"version": 2, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 503
+    r = await client.post(url, json={"version": 2, "cast": 3, "duck": 1})
+    assert r.status_code == 200 and r.json()["headcount"]["animal"] == 4, r.text

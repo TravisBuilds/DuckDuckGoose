@@ -40,8 +40,9 @@ from hfvg.qc.headcount import (
     shot_roster,
 )
 
-__all__ = ["REPORT_CONCURRENCY", "ReviewerHeadcountCounter", "check_still_headcount", "expected_cast",
-           "g2_headcount_report", "headcounts_path", "load_headcounts", "record_headcount"]
+__all__ = ["REPORT_CONCURRENCY", "ReviewerHeadcountCounter", "check_declared", "check_still_headcount",
+           "expected_cast", "g2_headcount_report", "headcount_row", "headcounts_path", "load_headcounts",
+           "record_headcount"]
 
 REPORT_CONCURRENCY = 4  # shots counted at once (each may be one judge call)
 _STILL_RE = re.compile(r"^still_v(\d+)(_end)?\.(?:jpe?g|png|webp)$", re.IGNORECASE)
@@ -72,8 +73,9 @@ def _count(counts: dict[str, Any], key: str, default: int | None = None) -> int:
     return v
 
 
-def _row(counts: dict[str, Any]) -> dict[str, Any]:
-    """The stored counts of one still: per figure (``figures``), or cast / duck / other as before."""
+def headcount_row(counts: dict[str, Any]) -> dict[str, Any]:
+    """The stored counts of one still: per figure (``figures``), or cast / duck / other as before
+    (ValueError when they cannot be stored)."""
     if counts.get("figures") is None:
         cast, duck, other = _count(counts, "cast"), _count(counts, "duck"), _count(counts, "other", 0)
         return {"cast": cast, "duck": duck, "other": other, "animal": cast + duck + other}
@@ -87,10 +89,26 @@ def _row(counts: dict[str, Any]) -> dict[str, Any]:
             "unexpected": _count(counts, "unexpected", 0), "background": _count(counts, "background", 0)}
 
 
+def check_declared(figures: dict[str, int], shot_meta: dict[str, Any] | None, still: str) -> None:
+    """Refuse (ValueError) a per-figure count that does not name exactly the figures the still's plan
+    declares, so a mistyped id is refused when it is recorded. A plan that changes after the count is
+    ``reviewer_answer``'s case."""
+    roster = shot_roster(shot_meta)
+    if roster is None:
+        raise ValueError(f"{still} declares no figures to count")
+    declared = [f.id for f in roster.figures]
+    for fid in figures:
+        if fid not in declared:
+            raise ValueError(f"figure id {fid!r} is not one {still} declares ({', '.join(declared) or 'none'})")
+    missing = [fid for fid in declared if fid not in figures]
+    if missing:
+        raise ValueError(f"count every figure {still} declares: no count for {', '.join(missing)}")
+
+
 def record_headcount(episode_id: str, shot_id: str, version: int, counts: dict[str, Any], by: str,
                      note: str = "", episodes_dir=None) -> dict:
     """Store a reviewer's count of one still version (atomic write). Returns the stored row."""
-    row = {**_row(counts), "by": by, "note": note}
+    row = {**headcount_row(counts), "by": by, "note": note}
     data = load_headcounts(episode_id, episodes_dir)
     data.setdefault(shot_id, {})[str(int(version))] = row
     p = headcounts_path(episode_id, episodes_dir)

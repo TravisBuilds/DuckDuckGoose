@@ -128,9 +128,13 @@ POST /api/episodes/{id}/shots/{shot}/headcount
 {"version": 2, "figures": {"ana": 1, "ben": 1, "pip": 1}, "unexpected": 0, "background": 0, "note": ""}
 ```
 
-An id the shot does not declare (the plan changed after the count) is an unexpected figure; a
-declared id left out is not counted (NEEDS_REVIEW). The first series' form (`cast`, `duck`, `other`)
-is still accepted, never mixed with `figures` ([Compatibility](#compatibility)).
+The count must name every figure that still's plan declares and no other: a mistyped id, or a
+declared one left out, is refused (422) when it is recorded. The plan is the still version's, or
+the shot's latest recompose still's; when the workflow cannot be read, nothing is recorded (409 or
+503). A count stored before the plan changed is read as before: an id the shot no longer declares
+is an unexpected figure, a declared id it lacks is not counted (NEEDS_REVIEW). The first series'
+form (`cast`, `duck`, `other`) is still accepted, never mixed with `figures`, and needs no plan
+([Compatibility](#compatibility)).
 
 ### c. Clip "fail if" checker (`ClipConstraintChecker`)
 
