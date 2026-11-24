@@ -13,7 +13,7 @@ Planned features and improvements for the Hands-Free Video Generator.
 - Web UI (basic)
 - CLI tools
 - Audio stage: voiceover, SFX, music, mix and delivery QC before the final cut (PRs #17 and #18)
-- Red-green mutation testing (783 tests: 778 mutations + 5 probes, as of 2026-11-23)
+- Red-green mutation testing (790 tests: 785 mutations + 5 probes, as of 2026-11-24)
 - Automated QC judges, off by default behind `HFVG_QC_JUDGES_ENABLED` ([QC-JUDGES.md](QC-JUDGES.md))
 
 **🚧 In Progress:**

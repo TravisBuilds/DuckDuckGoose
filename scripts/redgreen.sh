@@ -5355,6 +5355,48 @@ test_mutation 785 "qc judges: no judge instruction names a species or a look" \
     "tests/test_qc_any_show.py::test_no_judge_instruction_names_a_species_or_a_look" \
     sed -i 's/^SYSTEM = """You are the quality-control reviewer of a short video episode\. /SYSTEM = """You are the quality-control reviewer of a short animated episode (MUTATED). /'
 
+# 786: each reference sheet the counter sends is labelled with the figure id (and name) its listing uses
+test_mutation 786 "headcount judge: each reference sheet is labelled with its figure id" \
+    "hfvg/qc/vision_counter.py" \
+    "tests/test_qc_any_show.py::test_each_sheet_is_labelled_with_the_id_and_name_of_its_figure" \
+    sed -i 's/^    return figure_id if not name or name == figure_id else f"{figure_id} ({name})"$/    return name or figure_id  # MUTATED/'
+
+# 787: a reviewer count naming a figure id the still does not declare is refused when recorded
+test_mutation 787 "reviewer headcount: an undeclared figure id is refused when recorded" \
+    "hfvg/qc/g2_headcount.py" \
+    "tests/test_g2_headcount.py::test_api_refuses_a_figure_id_the_still_does_not_declare_when_it_is_recorded" \
+    sed -i 's/^        if fid not in declared:$/        if False:  # MUTATED/'
+
+# 788: a reviewer count that leaves a declared figure out is refused when recorded
+test_mutation 788 "reviewer headcount: a declared figure left out is refused when recorded" \
+    "hfvg/qc/g2_headcount.py" \
+    "tests/test_g2_headcount.py::test_api_refuses_a_figure_id_the_still_does_not_declare_when_it_is_recorded" \
+    sed -i 's/^    if missing:$/    if False:  # MUTATED/'
+
+# 789: the headcount API checks a per-figure count against the still's plan before storing it
+test_mutation 789 "reviewer headcount: the API checks the ids against the still's plan" \
+    "api/main.py" \
+    "tests/test_g2_headcount.py::test_api_refuses_a_figure_id_the_still_does_not_declare_when_it_is_recorded" \
+    sed -i 's/^            check_declared(row\["figures"\], shot_meta, f"{shot_id} v{request\.version}")$/            pass  # MUTATED/'
+
+# 790: a recompose still's count is checked against that recompose's plan, never another version's
+test_mutation 790 "reviewer headcount: a count is checked against its own still's plan" \
+    "api/main.py" \
+    "tests/test_g2_headcount.py::test_api_refuses_a_figure_id_the_still_does_not_declare_when_it_is_recorded" \
+    sed -i 's/^\(            plan = recompose if isinstance(recompose, dict)\) and recompose\.get("version") == version else None$/\1 else None  # MUTATED/'
+
+# 791: a fixed judge line smaller than the episode's shot plan needs is logged when it is created
+test_mutation 791 "judge budget: a fixed line too small for the shot plan is logged" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_any_show.py::test_a_fixed_line_smaller_than_the_shot_plan_needs_is_kept_and_logged" \
+    sed -i 's/^    if sized > fixed:$/    if False:  # MUTATED/'
+
+# 792: a fixed judge line keeps its cap: the shot plan never raises it without a config change
+test_mutation 792 "judge budget: a fixed line keeps its cap" \
+    "hfvg/qc/judges.py" \
+    "tests/test_qc_any_show.py::test_a_fixed_line_smaller_than_the_shot_plan_needs_is_kept_and_logged" \
+    sed -i 's/^    return fixed$/    return max(fixed, sized)  # MUTATED/'
+
 # Print final summary (no `set -e` exit here: the results file and the clean-tree check must run)
 if print_summary; then exit_code=0; else exit_code=1; fi
 
