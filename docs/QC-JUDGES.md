@@ -290,7 +290,9 @@ The first series' episodes (including the live ones) and their stored data keep 
 any edit:
 
 - A shot that declares its host with `duck_present` (`shot_meta.duck`) outside `count` gets the host
-  as one more figure (id `_duck_host`, counted alone, `hfvg/qc/animal_count.py`). When the cast list
+  as one more figure (id `_duck_host`, counted alone, `hfvg/qc/animal_count.py`). This is read when
+  the shot is counted, not when `shots.json` is parsed, because a running episode's workflow holds
+  the plans it was started with, which declare the host only by `duck: true`. When the cast list
   is already longer than `count`, the host is one of the listed entries and nothing is added. A new
   show with such a host declares it as an ordinary cast entry, locked so that its identity is judged.
 - Reviewer counts stored as `cast` / `duck` / `other` in `g2_headcounts.json`, and the same form of
@@ -319,4 +321,4 @@ any edit:
   makes a network call or pays. `tests/test_qc_any_show.py` runs the judges on shows without a duck
   (two people and a robot, a person with a lamp, a prop that acts) and sizes the budget for N locked
   characters; `tests/test_qc_duck_identity.py` keeps the compatibility shim working. Red-green
-  mutations M-730 to M-758 and M-764 to M-785 cover the fail-closed rules.
+  mutations M-730 to M-758 and M-764 to M-792 cover the fail-closed rules.
