@@ -96,8 +96,9 @@ No instruction to a judge names a kind of character or a visual style.
   than the cast list, the other main characters are one more figure (id `_cast`, expected `count`
   minus the cast list). A cast list longer than `count` is a plan a person confirms.
 - **Sees:** the still (or three frames of the clip inside its trim window), every figure by its id
-  with its cast description (the locked one for a locked version), the first sheet image of up to
-  four declared characters, and the shot's props and place, named as not figures.
+  and name with its cast description (the locked one for a locked version), the first sheet image
+  of up to four declared characters, each labelled with the same id and name, and the shot's props
+  and place, named as not figures.
 - **Answers:** in one call (`count_cast(media, shot_context)`), for every figure id: how many are in
   frame and whether they look like the declared character (`matches`); how many unexpected and
   background figures; a confidence. For a clip, the largest number seen in one frame.
