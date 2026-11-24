@@ -305,8 +305,8 @@ async def test_the_request_describes_the_cast_and_sends_its_sheet_images(db, tmp
     res = await check_still_headcount(counter, _still(tmp_path), meta, shot_context=_ctx())
     assert res["status"] == "PASS", res
     (request,) = client.calls
-    assert f"- {pip['character']}: {pip['clause']}" in request["text"]
-    assert "Reference images after the frames, in order: Pip." in request["text"]
+    assert f"- {pip['character']} (Pip): {pip['clause']}" in request["text"]
+    assert f"Reference images after the frames, in order: {pip['character']} (Pip)." in request["text"]
     assert len(request["images"]) == 2
 
 
@@ -316,7 +316,7 @@ async def test_without_a_described_cast_the_judge_is_told_what_counts_as_cast(db
     assert res["status"] == "PASS", res
     text = client.calls[0]["text"]
     assert "- _cast: cast, the shot's main characters that have no description here" in text
-    assert "- _duck_host: the series' duck host, not one of the shot's main characters" in text
+    assert "- _duck_host (duck): the series' duck host, not one of the shot's main characters" in text
 
 
 async def test_the_duck_host_is_left_out_of_the_assembly_animal_count(db, tmp_path):

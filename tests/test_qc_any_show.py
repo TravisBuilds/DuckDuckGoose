@@ -162,10 +162,26 @@ async def test_two_people_and_a_robot_are_counted_one_by_one(db, tmp_path):
                           ("unexpected figures", 0, "PASS")]
     (request,) = client.calls
     for entry in (ana, ben, pip):
-        assert f"- {entry['character']}: {entry['clause']}" in request["text"]
-    assert "Reference images after the frames, in order: Ana, Ben, Pip." in request["text"]
+        assert f"- {entry['character']} ({entry['name']}): {entry['clause']}" in request["text"]
+    assert ("Reference images after the frames, in order: "
+            f"{ana['character']} (Ana), {ben['character']} (Ben), {pip['character']} (Pip).") in request["text"]
     assert len(request["images"]) == 4  # the still and one sheet image per character
     assert "_cast" not in request["text"] and not _assumed(request["system"])
+
+
+async def test_each_sheet_is_labelled_with_the_id_and_name_of_its_figure(db, tmp_path):
+    guard = locked_character(EP, name="Marisol", seed=160, slug="guard-a",
+                             description="a night guard in a navy uniform with a torch on her belt")
+    robot = locked_character(EP, name="Unit 7", seed=170, slug="robot")
+    meta = _plans(_shot("N05", guard, robot))["N05"]["shot_meta"]
+    counter, client = _counter(_answer({"guard-a": 1, "robot": 1}))
+    res = await check_still_headcount(counter, _still(tmp_path, "N05"), meta, shot_context=_ctx("N05"))
+    assert res["status"] == "PASS", res
+    (request,) = client.calls
+    assert f"- guard-a (Marisol): {guard['clause']}" in request["text"]
+    assert f"- robot (Unit 7): {robot['clause']}" in request["text"]
+    assert "Reference images after the frames, in order: guard-a (Marisol), robot (Unit 7)." in request["text"]
+    assert len(request["images"]) == 3
 
 
 @pytest.mark.parametrize("who, counts, reason", [

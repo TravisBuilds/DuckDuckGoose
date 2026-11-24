@@ -3,11 +3,12 @@
 One paid call per still or clip window answers for every figure the shot declares
 (hfvg.qc.headcount.shot_roster): how many of each are in frame and whether each looks like the
 declared character, plus the figures nobody declared (``unexpected`` as subjects of the shot,
-``background`` only in the background). The request lists each figure by its id with its locked
-description, sends one sheet image per declared character of the cast library, and names the
-shot's props and place so they are not counted. A clip is counted on frames spread across its trim
-window: the largest number seen in one frame. The answer is cached by the media's content hash, the
-frame times, the roster, the props and the reference images.
+``background`` only in the background). The request lists each figure by its id and name with its
+locked description, sends one sheet image per declared character of the cast library, labelled with
+the same id and name, and names the shot's props and place so they are not counted. A clip is
+counted on frames spread across its trim window: the largest number seen in one frame. The answer
+is cached by the media's content hash, the frame times, the roster, the props and the reference
+images with their ids.
 
 Errors are raised (``JudgeUnavailable``): ``check_headcount`` turns them into NEEDS_REVIEW for that
 shot. A reviewer's recorded headcount still wins (``ReviewerHeadcountCounter`` asks this counter only
@@ -46,7 +47,8 @@ SYSTEM = """You count the figures in frames of a video shot. \
 The images before the reference images are the frames to count (one still, or frames from one clip). \
 The request lists the figures the shot declares, each with an id: a character described by its look \
 (a person, a creature, a robot, a puppet, an object that acts as a character, or anything else), or a \
-group of the shot's main characters that have no description, counted together.
+group of the shot's main characters that have no description, counted together. Each reference image \
+shows one described character; the request gives, in order, the id of the character each one shows.
 Count, in the frame that shows the most of each:
 - for every listed id: how many figures in the frame are that one (0 when it is not in frame; a group: \
 how many figures belong to it), and matches: false when a figure counted under a described character's \
@@ -80,7 +82,7 @@ def _validator(roster: Roster):
 
 
 def _cast_refs(episode_id: str | None, shot_meta: dict | None) -> list[tuple[str, str]]:
-    """(name, first identity image) of each declared character found in the cast library."""
+    """(figure id, first identity image) of each declared character found in the cast library."""
     from hfvg import cast_store
     from hfvg.cast_prompt import cast_entries
 
@@ -98,10 +100,17 @@ def _cast_refs(episode_id: str | None, shot_meta: dict | None) -> list[tuple[str
                 continue
             images, _notes = cast_store.identity_images(character, version, live=True)
             if images:
-                out.append((character["name"], str(cast_store.image_file(images[0]["sha256"], images[0]["ext"]))))
+                out.append((entry["character"], str(cast_store.image_file(images[0]["sha256"], images[0]["ext"]))))
     except Exception:  # noqa: BLE001 - references help; the descriptions still go in the prompt
         return out
     return out[:MAX_REFS]
+
+
+def _label(roster: Roster, figure_id: str) -> str:
+    """A figure as the request names it: its id, then its name when that says more."""
+    fig = roster.figure(figure_id)
+    name = fig.name if fig is not None else ""
+    return figure_id if not name or name == figure_id else f"{figure_id} ({name})"
 
 
 def _listing(roster: Roster) -> list[str]:
@@ -111,7 +120,8 @@ def _listing(roster: Roster) -> list[str]:
             lines.append(f"- {fig.id}: {fig.name}, the shot's main characters that have no description here "
                          "(every character that is a subject of the shot and none of the other listed ids)")
         else:
-            lines.append(f"- {fig.id}: {fig.description or fig.name}")
+            label = _label(roster, fig.id)
+            lines.append(f"- {label}: {fig.description}" if fig.description else f"- {label}")
     return lines
 
 
@@ -147,16 +157,17 @@ class VisionCastCounter(CastCounter):
                 frames = await extract_frames(media, times, tmp)
             else:
                 times, frames = None, [media]
-            images = [prepare_image(f, MEDIA_PX) for f in frames] + [prepare_image(p, REF_PX) for _n, p in refs]
+            images = [prepare_image(f, MEDIA_PX) for f in frames] + [prepare_image(p, REF_PX) for _i, p in refs]
             key_parts = {"media": file_sha256(media), "times": times, "figures": listed,
-                         "props": props, "refs": [file_sha256(p) for _n, p in refs]}
+                         "props": props, "refs": [[fid, file_sha256(p)] for fid, p in refs]}
         lines = [f"Shot {shot_context.get('shot_id') or ''}: {len(frames)} frame(s) to count."]
         lines += ["Figures:", *_listing(roster)] if roster.figures else \
             ["The shot declares no figures: every figure in frame is unexpected or background."]
         if props:
             lines.append("Not figures (props and the setting): " + " ".join(props))
         if refs:
-            lines.append("Reference images after the frames, in order: " + ", ".join(n for n, _p in refs) + ".")
+            lines.append("Reference images after the frames, in order: "
+                         + ", ".join(_label(roster, fid) for fid, _p in refs) + ".")
         answer = await self.service.ask(JudgeCall(
             kind="headcount", episode_id=episode_id, subject=f"{shot_context.get('shot_id') or ''} {media.name}".strip(),
             system=SYSTEM, text="\n".join(lines), images=images, key_parts=key_parts, validate=_validator(roster)))
