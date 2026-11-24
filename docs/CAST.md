@@ -315,9 +315,10 @@ Existing settings that apply: `DATA_DIR`, `DATABASE_PATH`, `DRY_RUN`, `MODEL_PAT
 - **Vision identity judge.** Built behind `HFVG_QC_JUDGES_ENABLED` (off by default,
   [QC-JUDGES.md](QC-JUDGES.md)): `review_still` and `review_clip` check every `locked: true` entry of
   `shot_meta.cast` against its lock (locked description, master, turnaround and head sheet,
-  `lock_hash`). Drift fails the still or clip, which is re-rolled only through the bounded
-  `retry_shot` / `retry_clip`; an unsure check or a lock that changed on disk goes to a person. An
-  automatic retry is not part of it.
+  `lock_hash`), with the same rules for any kind of character. Drift fails the still or clip, which
+  is re-rolled only through the bounded `retry_shot` / `retry_clip`; an unsure check or a lock that
+  changed on disk goes to a person. An automatic retry is not part of it. The headcount counts every
+  `shot_meta.cast` entry by its slug, so a prop that acts as a character belongs in the cast.
 - **Seedance reference-to-video.** `shot_meta.cast` and the cast ref keys can be passed to a clip
   route. Clip planning ignores the cast today.
 - **Higgsfield Elements / Soul ID.** A locked version (master + turnaround + `lock_hash`) is the input

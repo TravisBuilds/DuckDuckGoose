@@ -1,11 +1,14 @@
 """GAP-27 (ep05v2 2026-10-27): V12 v2 had FOUR main-cast animals for a 3-animal shot and reached the G2
 package: nothing compared the animals in a still with the declared cast. The G2 headcount check counts
-main-cast animals, ducks and every animal in each kept still; a mismatch is FAIL and blocks G2 approval
-(409) unless overridden per shot with an audited reason. No counter and no reviewer count -> NEEDS_REVIEW
-(never a silent PASS)."""
+every figure the shot declares in each kept still (the first series' shots below: main characters
+counted together, its host declared by duck_present; a show with a cast library: each cast id) and
+the figures nobody declared; a mismatch is FAIL and blocks G2 approval (409) unless overridden per
+shot with an audited reason. No counter and no reviewer count -> NEEDS_REVIEW (never a silent PASS).
+A reviewer counts per cast id, and the first series' cast / duck / other form still works."""
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -19,6 +22,11 @@ from hfvg.qc.g2_headcount import (
 
 CAPY3 = {"count": 3, "characters": ["R", "H", "M"], "duck": False}
 DUCK_FAMILY = {"count": 3, "characters": ["D", "R", "H", "M"], "duck": True}
+# Two people and a robot of a show's cast library
+NIGHT_SHIFT = {"count": 3, "cast": [
+    {"character": "ana", "version": 1, "name": "Ana", "clause": "Ana: a woman in a yellow raincoat.", "locked": True},
+    {"character": "ben", "version": 1, "name": "Ben", "clause": "Ben: a tall man with round glasses.", "locked": True},
+    {"character": "pip", "version": 1, "name": "Pip", "clause": "Pip: a small round robot.", "locked": True}]}
 
 
 def _still(tmp_path, shot="V12", v=2, ep="ep42"):
@@ -47,7 +55,8 @@ async def test_four_cast_animals_for_three_is_fail(tmp_path):
 async def test_extra_other_animal_fails_on_total(tmp_path):
     p = _still(tmp_path)
     res = await check_still_headcount(FakeAnimalCounter({"cast": 3, "duck": 0, "animal": 4}), p, CAPY3)
-    assert res["status"] == "FAIL" and "animal: expected 3, counted 4" in res["reason"]
+    # the fourth animal is not in the cast: one unexpected figure (the general headcount has no animal total)
+    assert res["status"] == "FAIL" and "unexpected figures: expected 0, counted 1" in res["reason"]
 
 
 @pytest.mark.asyncio
@@ -56,7 +65,8 @@ async def test_missing_or_extra_duck_fails(tmp_path):
     no_duck = await check_still_headcount(FakeAnimalCounter({"cast": 3, "duck": 0, "animal": 3}), p, DUCK_FAMILY)
     assert no_duck["status"] == "FAIL" and "duck: expected 1, counted 0" in no_duck["reason"]
     extra = await check_still_headcount(FakeAnimalCounter({"cast": 3, "duck": 1, "animal": 4}), p, CAPY3)
-    assert extra["status"] == "FAIL" and "duck: expected 0, counted 1" in extra["reason"]
+    # a shot without the duck host does not list it: the duck is one unexpected figure
+    assert extra["status"] == "FAIL" and "unexpected figures: expected 0, counted 1" in extra["reason"]
 
 
 @pytest.mark.asyncio
@@ -91,6 +101,48 @@ async def test_reviewer_headcount_counts_exact_version(tmp_path):
     assert (await check_still_headcount(c, v3, CAPY3))["status"] == "NEEDS_REVIEW"  # v3 not counted yet
     with pytest.raises(ValueError):
         record_headcount("ep42", "V12", 2, {"cast": -1, "duck": 0}, by="a", episodes_dir=eps)
+
+
+@pytest.mark.asyncio
+async def test_a_reviewer_counts_each_cast_id_and_the_figures_nobody_declared(tmp_path):
+    eps = tmp_path / "eps"
+    row = record_headcount("ep42", "V12", 2, {"figures": {"pip": 2, "ana": 1, "ben": 1}, "unexpected": 0},
+                           by="admin", episodes_dir=eps)
+    assert row == {"figures": {"ana": 1, "ben": 1, "pip": 2}, "unexpected": 0, "background": 0, "by": "admin",
+                   "note": ""}
+    res = await check_still_headcount(ReviewerHeadcountCounter(load_headcounts("ep42", eps)), _still(tmp_path, v=2),
+                                      NIGHT_SHIFT)
+    assert res["status"] == "FAIL" and res["reason"] == "Pip: expected 1, counted 2", res
+    assert {c["method"] for c in res["checks"]} == {"reviewer_headcount (admin)"}
+
+    # an id the shot does not declare (its plan changed after the count) is an unexpected figure,
+    # a declared id left out is not counted (a person decides), background figures too
+    record_headcount("ep42", "V12", 3, {"figures": {"ana": 1, "pip": 1, "bo": 1}, "background": 2}, by="admin",
+                     episodes_dir=eps)
+    res = await check_still_headcount(ReviewerHeadcountCounter(load_headcounts("ep42", eps)), _still(tmp_path, v=3),
+                                      NIGHT_SHIFT)
+    assert res["status"] == "FAIL", res
+    assert res["reason"] == ("Ben: not counted; unexpected figures: expected 0, counted 1; "
+                             "background figures nobody declared: 2 (a person decides)")
+    for counts, message in [({"figures": {"Ana Lee": 1}}, "figure id 'Ana Lee' is not a cast id"),
+                            ({"figures": {"ana": -1}}, "ana must be a non-negative integer, got -1"),
+                            ({"figures": {"ana": 1}, "unexpected": True}, "unexpected must be a non-negative integer"),
+                            ({"figures": ["ana"]}, "figures must be an object")]:
+        with pytest.raises(ValueError, match=re.escape(message)):
+            record_headcount("ep42", "V12", 4, counts, by="admin", episodes_dir=eps)
+
+
+@pytest.mark.asyncio
+async def test_an_old_cast_duck_other_count_still_counts_a_shot_with_cast_entries(tmp_path):
+    eps = tmp_path / "eps"
+    record_headcount("ep42", "V12", 2, {"cast": 3, "duck": 0}, by="admin", episodes_dir=eps)
+    record_headcount("ep42", "V12", 3, {"cast": 4, "duck": 0}, by="admin", episodes_dir=eps)
+    counter = ReviewerHeadcountCounter(load_headcounts("ep42", eps))
+    res = await check_still_headcount(counter, _still(tmp_path, v=2), NIGHT_SHIFT)
+    assert res["status"] == "PASS" and [(c["label"], c.get("counted")) for c in res["checks"]] == \
+        [("cast", 3), ("unexpected figures", 0)], res
+    res = await check_still_headcount(counter, _still(tmp_path, v=3), NIGHT_SHIFT)
+    assert res["status"] == "FAIL" and res["reason"] == "cast: expected 3, counted 4", res
 
 
 def _versions(**cur):
@@ -213,3 +265,110 @@ async def test_api_g2_approve_not_blocked_by_needs_review_and_fails_closed_when_
     _wire(api_main, broken)
     r = await client.post("/api/episodes/ep42/approve", json={"gate_id": "g2_scene_stills"})
     assert r.status_code == 409 and "fails closed" in r.json()["detail"] and broken.updates == []
+
+
+@pytest.mark.asyncio
+async def test_api_takes_a_count_per_cast_id_and_refuses_a_mixed_or_incomplete_form(api, tmp_path):
+    api_main, client = api
+    _still(tmp_path, "V12", 2)
+    handle = _Handle(_versions(V12=2), {"V12": {"shot_meta": NIGHT_SHIFT}})
+    _wire(api_main, handle)
+    report = (await client.get("/api/episodes/ep42/g2-headcount")).json()
+    assert report["shots"]["V12"]["expected"] == {"figures": [  # the ids a reviewer counts
+        {"id": "ana", "name": "Ana", "expected": 1, "group": False, "locked": True},
+        {"id": "ben", "name": "Ben", "expected": 1, "group": False, "locked": True},
+        {"id": "pip", "name": "Pip", "expected": 1, "group": False, "locked": True}], "unexpected": 0}
+    url = "/api/episodes/ep42/shots/V12/headcount"
+    r = await client.post(url, json={"version": 2, "figures": {"ana": 1, "ben": 1, "pip": 1}, "unexpected": 1,
+                                     "note": "a courier at the door"})
+    assert r.status_code == 200, r.text
+    assert r.json()["headcount"] == {"figures": {"ana": 1, "ben": 1, "pip": 1}, "unexpected": 1, "background": 0,
+                                     "by": "admin", "note": "a courier at the door"}
+    report = (await client.get("/api/episodes/ep42/g2-headcount")).json()
+    assert report["blocking"] == ["V12"], report
+    assert report["shots"]["V12"]["reason"] == "unexpected figures: expected 0, counted 1"
+    r = await client.post(url, json={"version": 2, "cast": 3, "duck": 0})  # the first series' form
+    assert r.status_code == 200 and r.json()["headcount"]["animal"] == 3, r.text
+    assert (await client.get("/api/episodes/ep42/g2-headcount")).json()["blocking"] == []
+    for body, detail in [
+        ({"version": 2, "figures": {"ana": 1}, "cast": 1, "duck": 0}, "not both"),
+        ({"version": 2, "cast": 3, "duck": 0, "unexpected": 1}, "unexpected and background go with figures"),
+        ({"version": 2, "cast": 3}, "send figures (figure id -> count) or both cast and duck"),
+        ({"version": 2, "figures": {"ana lee": 1}}, "figure id 'ana lee' is not a cast id"),
+        ({"version": 2, "figures": {"ana": -1}}, "ana must be a non-negative integer"),
+    ]:
+        r = await client.post(url, json=body)
+        assert r.status_code == 422 and detail in r.json()["detail"], (body, r.text)
+    with sqlite3.connect(tmp_path / "studio.db") as c:
+        details = [d for (a, d) in c.execute("SELECT action, details FROM audit_log") if a == "g2_headcount"]
+    assert any("V12 v2: ana=1 ben=1 pip=1 unexpected=1 background=0" in str(d) for d in details), details
+
+
+class _RecomposeHandle(_Handle):
+    """A shot whose still was made by a recompose: not a G2 still version."""
+
+    def __init__(self, recompose):
+        super().__init__({}, {})
+        self.recompose = recompose
+
+    async def query(self, name, args=None):
+        if name == "recompose_still_plans":
+            return self.recompose
+        return await super().query(name, args)
+
+
+@pytest.mark.asyncio
+async def test_api_refuses_a_figure_id_the_still_does_not_declare_when_it_is_recorded(api, tmp_path):
+    """A mistyped id used to be stored and read at G2 as an unexpected figure (a FAIL blocking
+    approval); now it is refused when recorded, and so is a count that leaves a declared figure out.
+    A count stored before the plan changed is still read at G2 (the test above)."""
+    api_main, client = api
+    eps = tmp_path / "eps"
+    _still(tmp_path, "V12", 2)
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": NIGHT_SHIFT}}))
+    url = "/api/episodes/ep42/shots/V12/headcount"
+    for figures, detail in [
+        ({"ana": 1, "ben": 1, "pipp": 1}, "figure id 'pipp' is not one V12 v2 declares (ana, ben, pip)"),
+        ({"ana": 1, "ben": 1}, "count every figure V12 v2 declares: no count for pip"),
+    ]:
+        r = await client.post(url, json={"version": 2, "figures": figures})
+        assert r.status_code == 422 and r.json()["detail"] == detail, (figures, r.text)
+    assert load_headcounts("ep42", eps) == {}
+
+    # the first series' plans: its main characters counted together and its host, by their figure ids
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": DUCK_FAMILY}}))
+    r = await client.post(url, json={"version": 2, "figures": {"_cast": 3}})
+    assert r.status_code == 422 and r.json()["detail"] == "count every figure V12 v2 declares: no count for _duck_host"
+    r = await client.post(url, json={"version": 2, "figures": {"_cast": 3, "_duck_host": 1}})
+    assert r.status_code == 200, r.text
+    _wire(api_main, _Handle(_versions(V12=2), {"V12": {"shot_meta": {}}}))
+    r = await client.post(url, json={"version": 2, "figures": {}, "unexpected": 1})
+    assert r.status_code == 422 and r.json()["detail"] == "V12 v2 declares no figures to count"
+
+    # a recompose still is checked against the cast its recompose declared
+    _still(tmp_path, "V12", 4)
+    _wire(api_main, _RecomposeHandle({"V12": {"version": 4, "shot_meta": NIGHT_SHIFT}}))
+    r = await client.post(url, json={"version": 4, "figures": {"ana": 1, "bem": 1, "pip": 1}})
+    assert r.status_code == 422 and "'bem' is not one V12 v4 declares" in r.json()["detail"], r.text
+    r = await client.post(url, json={"version": 4, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 200, r.text
+    assert load_headcounts("ep42", eps)["V12"]["4"]["figures"] == {"ana": 1, "ben": 1, "pip": 1}
+
+    # a still whose plan cannot be read is refused (fails closed), as is one with no plan at all
+    _wire(api_main, _RecomposeHandle({"V12": {"version": 3, "shot_meta": NIGHT_SHIFT}}))
+    r = await client.post(url, json={"version": 4, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 409 and "no plan for still v4 of V12" in r.json()["detail"], r.text
+
+    class Broken(_Handle):
+        async def query(self, name, args=None):
+            raise RuntimeError("query failed")
+    _wire(api_main, Broken({}, {}))
+    r = await client.post(url, json={"version": 2, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 409 and "fails closed" in r.json()["detail"], r.text
+
+    # the first series' form needs no plan: it is recorded without the workflow
+    api_main.temporal_client = None
+    r = await client.post(url, json={"version": 2, "figures": {"ana": 1, "ben": 1, "pip": 1}})
+    assert r.status_code == 503
+    r = await client.post(url, json={"version": 2, "cast": 3, "duck": 1})
+    assert r.status_code == 200 and r.json()["headcount"]["animal"] == 4, r.text

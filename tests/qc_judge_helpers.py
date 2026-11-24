@@ -19,12 +19,12 @@ JUDGE_ENV = (
 
 def reset_registries() -> None:
     """No still reviewer, counter, clip checker or identity judge registered (the flag-off state)."""
-    from hfvg.qc.animal_count import set_animal_counter
     from hfvg.qc.clip_constraints import set_constraint_checker
+    from hfvg.qc.headcount import set_cast_counter
     from hfvg.qc.identity import set_identity_judge
     from hfvg.qc.still_review import set_still_reviewer
 
-    set_animal_counter(None)
+    set_cast_counter(None)
     set_constraint_checker(None)
     set_identity_judge(None)
     set_still_reviewer(None)
@@ -63,13 +63,14 @@ async def live_episode(tmp_path: Path, monkeypatch, episode_id: str) -> str:
 
 
 def locked_character(episode_id: str, name: str = "Pip", seed: int = 100,
-                     description: str = "a small round robot with a teal shell and one yellow antenna") -> dict:
+                     description: str = "a small round robot with a teal shell and one yellow antenna",
+                     slug: str | None = None) -> dict:
     """A character of the episode's cast library with a complete, locked sheet; returns the shot_meta
-    cast entry the shot planner writes for it."""
+    cast entry the shot planner writes for it. ``slug``: its id, when not the one made from the name."""
     from hfvg import cast_store
     from tests.cast_helpers import complete_sheet, new_character
 
-    character = new_character(("episode", episode_id), name=name, description=description)
+    character = new_character(("episode", episode_id), name=name, description=description, slug=slug)
     complete_sheet(character, 1, seed=seed)
     cast_store.approve_version(character["character_id"], 1, "tester")
     character = cast_store.get_character(character["character_id"])

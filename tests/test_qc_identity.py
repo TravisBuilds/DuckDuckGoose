@@ -2,9 +2,11 @@
 docs/QC-JUDGES.md): criteria from the character's lock in the cast library, a composite of real crops
 (the locked sheet next to the character cut out of the frame), a vision detector and judge, then the
 profile's rules. Anything the gate cannot judge (no judge, the dry-run fakes on a live run, a changed
-lock, an unsure or broken detector or judge, a budget refusal) escalates; drift is a FAIL. The duck
-host is one configured profile of the same gate: its dry-run tests stay in test_qc_duck_identity.py
-and test_e2e_dryrun.py, its live tests are here. FakeJudgeClient only: no network, no spend."""
+lock, an unsure or broken detector or judge, a budget refusal) escalates; drift is a FAIL. The first
+series' duck host gate (hfvg.qc.duck_identity, a compatibility shim: its rules are one profile of the
+same gate) has its live tests here, its dry-run tests in test_qc_duck_identity.py and
+test_e2e_dryrun.py; shows of people, robots and props are in test_qc_any_show.py. FakeJudgeClient
+only: no network, no spend."""
 
 from __future__ import annotations
 
@@ -256,6 +258,7 @@ async def test_a_budget_refusal_escalates_without_a_call(db, tmp_path):
     _register(client)
     res = await _review(_frame(tmp_path), pip)
     assert res["status"] == "NEEDS_REVIEW" and "budget refused the judge call" in res["reason"], res
+    assert "judge budget used up, a person checks this: " in res["reason"], res
     assert client.calls == [] and qc_line(db, EP)["reserved"] == 0
 
 

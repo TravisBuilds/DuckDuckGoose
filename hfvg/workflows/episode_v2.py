@@ -92,7 +92,7 @@ class EpisodeWorkflowV2:
     0. Bible (asset registry, playbook)
     1. Story (pitch pick, beatmap, credit plan)
     2. Stills (refs, drafts, finals with character locks)
-    3. Video (clips with duck identity gate)
+    3. Video (clips with the identity gate of the locked cast)
     4. Mute (trim, QC, picture lock)
     5. Script (VO script lock)
     6. Audio (VO, music, SFX, mix, final approval)
@@ -1966,8 +1966,8 @@ class EpisodeWorkflowV2:
         """Assemble the mute edit from the approved clips, run its QC and record both in state.
 
         Never silently skipped: a completed shot without a local clip, an assembly error or a QC that
-        cannot verify (e.g. no animal checker) end in a blocking NEEDS_REVIEW verdict; a still-only
-        shot or an animal count / duck mismatch is a blocking FAIL. WATCH is recorded for the
+        cannot verify (e.g. no headcount counter) end in a blocking NEEDS_REVIEW verdict; a still-only
+        shot or a headcount mismatch is a blocking FAIL. WATCH is recorded for the
         reviewer. NO_CLIPS (every shot rejected/failed, each already escalated) and DRY_RUN
         (placeholder clips) are recorded verdicts, not passes on pixels, and do not block."""
         self.state.stage = PipelineStage.MUTE_EDIT

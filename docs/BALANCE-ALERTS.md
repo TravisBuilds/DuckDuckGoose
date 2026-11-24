@@ -70,9 +70,10 @@ Every paid generation (still, clip, audio) runs a preflight balance check before
 With auto top-up enabled, a low balance only warns but allows the generation (the provider will auto-reload). A stale manual entry also warns but doesn't block. Only an observed 403 blocks.
 
 Every paid QC judge call ([QC-JUDGES.md](./QC-JUDGES.md), off by default) runs the same check for
-provider `openai`. An OpenAI API key has no balance endpoint, so that balance is unknown and the gate
-passes, as for any unknown balance; judge spend is bounded by the episode's `qc_judges` budget line
-instead. A gate that refuses or fails makes the check NEEDS_REVIEW without a call.
+the judge model's provider (`openai` by default, the provider part of `HFVG_QC_JUDGE_MODEL`). An
+OpenAI API key has no balance endpoint, so that balance is unknown and the gate passes, as for any
+unknown balance; judge spend is bounded by the episode's `qc_judges` budget line instead. A gate
+that refuses or fails makes the check NEEDS_REVIEW without a call.
 
 ## Alerts
 
